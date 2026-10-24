@@ -10,7 +10,19 @@ PROJECT_FOLDER = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_FOLDER)
 
 from products import PRODUCTS
-from scoring import assign_tier, tier_label
+from scoring import (
+    DROP_SELL,
+    GOAL_SAFE,
+    NEED_1_TO_5_YEARS,
+    NEED_WITHIN_1_YEAR,
+    NOTE_LOCKED,
+    NOTE_NEED_SOON,
+    NOTE_SAFE_GOAL,
+    NOTE_WOULD_SELL,
+    assign_tier,
+    fit_notes,
+    tier_label,
+)
 
 results = []  # One True (pass) or False (fail) per check.
 
@@ -23,6 +35,14 @@ def check(description, actual, expected):
     else:
         print(f"FAIL  {description}: got {actual}, expected {expected}")
         results.append(False)
+
+
+def find_product(key):
+    """Find the product with this key in products.py. None if it is missing."""
+    for product in PRODUCTS:
+        if product["key"] == key:
+            return product
+    return None
 
 
 def make_product(backed=False, worst=0, protections=True):
@@ -43,6 +63,18 @@ def make_product(backed=False, worst=0, protections=True):
         "gain_note": "",
         "insurance_note": "",
         "sources": [],
+    }
+
+
+def make_answers(need="Not for 5 years or more", drop="Stay calm", goal="Grow it over many years"):
+    """Pretend answers from the Your situation page (Rosa-style, not real data).
+    The defaults are answers that match none of the four rules."""
+    return {
+        "age": "70–74",
+        "income": "Prefer not to say",
+        "need": need,
+        "drop": drop,
+        "goal": goal,
     }
 
 
@@ -79,11 +111,7 @@ print("\n" + "=" * 60)
 print("EXPECTED RESULTS")
 print("=" * 60)
 for key, expected in EXPECTED.items():
-    # Find the product with this key.
-    found = None
-    for product in PRODUCTS:
-        if product["key"] == key:
-            found = product
+    found = find_product(key)
     if found is None:
         check(key, "missing from PRODUCTS", expected)
         continue
@@ -116,6 +144,43 @@ edge_cases = [
 ]
 for description, result, expected_tier in edge_cases:
     check(description, result["tier"], expected_tier)
+
+# ---------- Part 4: fit notes ----------
+print("\n" + "=" * 60)
+print("FIT NOTES")
+print("=" * 60)
+all_rules = make_answers(need=NEED_WITHIN_1_YEAR, drop=DROP_SELL, goal=GOAL_SAFE)
+fit_cases = [
+    ("No answers gives no notes",
+     fit_notes(find_product("sp500"), None), []),
+    ("Calm answers give no notes, even on Bitcoin",
+     fit_notes(find_product("bitcoin"), make_answers()), []),
+    ("Need within 1 year, Safe Harbor savings: no notes",
+     fit_notes(find_product("savings"), make_answers(need=NEED_WITHIN_1_YEAR)), []),
+    ("Need within 1 year, Calm Bay money market fund: no notes",
+     fit_notes(find_product("mmfund"), make_answers(need=NEED_WITHIN_1_YEAR)), []),
+    ("Need within 1 year, Coastal Waters bond fund",
+     fit_notes(find_product("bondindex"), make_answers(need=NEED_WITHIN_1_YEAR)), [NOTE_NEED_SOON]),
+    ("Need in 1 to 5 years, locked fixed annuity",
+     fit_notes(find_product("fixedannuity"), make_answers(need=NEED_1_TO_5_YEARS)), [NOTE_LOCKED]),
+    ("Need within 1 year, locked fixed annuity (Calm Bay, so only the locked note)",
+     fit_notes(find_product("fixedannuity"), make_answers(need=NEED_WITHIN_1_YEAR)), [NOTE_LOCKED]),
+    ("Would sell, Coastal Waters balanced fund: no notes",
+     fit_notes(find_product("balanced"), make_answers(drop=DROP_SELL)), []),
+    ("Would sell, Open Sea S&P 500 fund",
+     fit_notes(find_product("sp500"), make_answers(drop=DROP_SELL)), [NOTE_WOULD_SELL]),
+    ("Goal keep it safe, Calm Bay money market fund: no notes",
+     fit_notes(find_product("mmfund"), make_answers(goal=GOAL_SAFE)), []),
+    ("Goal keep it safe, Coastal Waters bond fund",
+     fit_notes(find_product("bondindex"), make_answers(goal=GOAL_SAFE)), [NOTE_SAFE_GOAL]),
+    ("All four rules match on the variable annuity",
+     fit_notes(find_product("variableannuity"), all_rules),
+     [NOTE_NEED_SOON, NOTE_LOCKED, NOTE_WOULD_SELL, NOTE_SAFE_GOAL]),
+    ("Not rated product gets no tier notes",
+     fit_notes(make_product(backed=None, worst=None), all_rules), []),
+]
+for description, actual, expected in fit_cases:
+    check(description, actual, expected)
 
 # ---------- Total ----------
 passed = results.count(True)

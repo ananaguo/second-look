@@ -1,6 +1,7 @@
 # scoring.py
 # This is the ONE place where a product's tier is decided.
 # Claude never picks the tier. This file does it with simple, fixed math.
+# It also holds the four simple rules for the "Worth thinking about" notes.
 
 from products import TIERS
 
@@ -14,6 +15,28 @@ ACCESS_BADGES = {
 # Words shown when a product doesn't get a normal tier.
 OFF_MAP_LABEL = "Doesn't fit the map: check for a scam"
 NOT_RATED_LABEL = "Not rated yet"
+
+# ---------- Answers from the Your situation page ----------
+# app.py shows these exact words as choices, so the rules below always match.
+NEED_WITHIN_1_YEAR = "Within 1 year"
+NEED_1_TO_5_YEARS = "In 1 to 5 years"
+DROP_SELL = "Sell to stop the loss"
+GOAL_SAFE = "Keep it safe"
+
+# ---------- The four fit notes, word for word ----------
+NOTE_NEED_SOON = (
+    "You said you may need this money within a year. "
+    "Products in this tier have lost 10% or more in a bad year."
+)
+NOTE_LOCKED = (
+    "You said you may need this money within 5 years. "
+    "This product usually charges you to leave early."
+)
+NOTE_WOULD_SELL = (
+    "You said a drop to $7,000 would make you sell. "
+    "This tier has dropped further than that."
+)
+NOTE_SAFE_GOAL = "Your goal is to keep it safe. This tier can lose money."
 
 
 def tier_label(tier):
@@ -130,3 +153,41 @@ def assign_tier(product, tbill_rate_pct=4.1, promised_return_pct=None, guarantee
         "worst_case_dollars": worst_dollars,
         "steps": steps,
     }
+
+
+def fit_notes(product, answers):
+    """Plain sentences that connect someone's answers to this product.
+    Uses ONLY the four rules below. Returns an empty list if nothing matches."""
+    notes = []
+
+    # No answers yet: nothing to say.
+    if not answers:
+        return notes
+
+    # The tier always comes from assign_tier above.
+    tier = assign_tier(product)["tier"]
+    # Products with no normal tier (off_map, not_rated) skip the tier rules.
+    has_tier = isinstance(tier, int)
+
+    need = answers.get("need")
+    drop = answers.get("drop")
+    goal = answers.get("goal")
+
+    # Rule 1: need it within 1 year, and tier 3 or higher.
+    if need == NEED_WITHIN_1_YEAR and has_tier and tier >= 3:
+        notes.append(NOTE_NEED_SOON)
+
+    # Rule 2: need it within 5 years (that includes within 1 year),
+    # and the money is locked up for years.
+    if need in (NEED_WITHIN_1_YEAR, NEED_1_TO_5_YEARS) and product["access"] == "locked_years":
+        notes.append(NOTE_LOCKED)
+
+    # Rule 3: would sell on a drop, and tier 4 or higher.
+    if drop == DROP_SELL and has_tier and tier >= 4:
+        notes.append(NOTE_WOULD_SELL)
+
+    # Rule 4: goal is to keep it safe, and tier 3 or higher.
+    if goal == GOAL_SAFE and has_tier and tier >= 3:
+        notes.append(NOTE_SAFE_GOAL)
+
+    return notes

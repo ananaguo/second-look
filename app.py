@@ -5,7 +5,15 @@
 import streamlit as st
 
 from products import PRODUCTS, TIERS
-from scoring import assign_tier, tier_label
+from scoring import (
+    DROP_SELL,
+    GOAL_SAFE,
+    NEED_1_TO_5_YEARS,
+    NEED_WITHIN_1_YEAR,
+    assign_tier,
+    fit_notes,
+    tier_label,
+)
 
 # ---------- Page setup (this must be the first Streamlit command) ----------
 st.set_page_config(
@@ -23,6 +31,50 @@ NOTICE = (
     "Second Look explains money products in plain language. "
     "It is educational, not professional financial advice."
 )
+
+# ---------- Your situation: the five questions ----------
+# "key" is the name used in st.session_state["answers"].
+# "short" is the name shown in the "Here's what you told us" summary.
+# Some choices come from scoring.py, so the fit-note rules always match.
+QUESTIONS = [
+    {
+        "key": "age",
+        "short": "Age range",
+        "question": "What is your age range?",
+        "options": ["65–69", "70–74", "75–79", "80–84", "85 or older"],
+    },
+    {
+        "key": "income",
+        "short": "Monthly income from all sources",
+        "question": "What is your monthly income from all sources?",
+        "options": ["Under $2,000", "$2,000–$3,500", "Over $3,500", "Prefer not to say"],
+    },
+    {
+        "key": "need",
+        "short": "When you might need this money",
+        "question": "When might you need this money?",
+        "options": [NEED_WITHIN_1_YEAR, NEED_1_TO_5_YEARS, "Not for 5 years or more"],
+    },
+    {
+        "key": "drop",
+        "short": "If $10,000 dropped to $7,000, you would",
+        "question": "If $10,000 you saved dropped to $7,000 for a while, you would…",
+        "options": [DROP_SELL, "Worry but wait", "Stay calm"],
+    },
+    {
+        "key": "goal",
+        "short": "Main goal",
+        "question": "What is your main goal for this money?",
+        "options": [GOAL_SAFE, "Keep up with rising prices", "Grow it over many years", "Steady income"],
+    },
+]
+
+PRIVACY_LINE = "Don't type your name, account numbers, or Social Security number. We never need them."
+
+# ---------- Words for the "Worth thinking about" notes ----------
+NOTES_TITLE = "💭 Worth thinking about"
+NOTES_DISCLAIMER = "These notes come from simple rules, not advice."
+NO_NOTES_LINE = "None of our simple rules matched your answers for this product."
 
 # ---------- Words and icons for the Explore products cards ----------
 
@@ -111,13 +163,20 @@ html { font-size: 22px; }
     margin: 1.5rem 0;
 }
 
-/* Product cards: a thick dark border, lots of room inside and between */
+/* Cards (products, questions, summary): a thick dark border, lots of room */
 .stApp [class*="st-key-card_"] {
     border: 3px solid #111111;
     border-radius: 14px;
     padding: 28px 24px;
     margin-bottom: 2rem;
     background-color: #FFFFFF;
+}
+
+/* The "Worth thinking about" box inside a product card */
+.stApp [class*="st-key-notes_"] {
+    border: 2px dashed #111111;
+    border-radius: 10px;
+    padding: 18px 20px;
 }
 
 /* The block bars in the gauges */
@@ -127,6 +186,48 @@ html { font-size: 22px; }
 .stApp .gauge-bar {
     font-size: 30px;
     letter-spacing: 4px;
+}
+
+/* Your situation: the question text above the choices */
+.stApp [data-testid="stRadio"] [data-testid="stWidgetLabel"] p {
+    font-size: 28px !important;
+    font-weight: 700;
+    line-height: 1.3;
+}
+/* Space between the choices */
+.stApp [data-testid="stRadio"] [role="radiogroup"] {
+    gap: 12px;
+}
+/* Each choice is a big box that is easy to click */
+.stApp [data-testid="stRadio"] [role="radiogroup"] label {
+    width: 100%;
+    min-height: 64px;
+    padding: 12px 16px;
+    border: 2px solid #111111;
+    border-radius: 10px;
+    align-items: center;
+    cursor: pointer;
+}
+/* The round dot: one and a half times bigger */
+.stApp [data-testid="stRadio"] [role="radiogroup"] label > div:first-child {
+    transform: scale(1.5);
+    margin-right: 14px;
+}
+.stApp [data-testid="stRadio"] [role="radiogroup"] label p {
+    font-size: 24px !important;
+}
+/* The chosen answer: a thicker border and bold words, not just a color */
+.stApp [data-testid="stRadio"] [role="radiogroup"] label:has(input:checked) {
+    border-width: 4px;
+    background-color: #E8EEFC;
+}
+.stApp [data-testid="stRadio"] [role="radiogroup"] label:has(input:checked) p {
+    font-weight: 700;
+}
+/* Thick outline when moving between choices with the keyboard */
+.stApp [data-testid="stRadio"] [role="radiogroup"] label:has(input:focus-visible) {
+    outline: 4px solid #111111;
+    outline-offset: 3px;
 }
 
 /* "Show me the numbers": big title and a clear border */
@@ -301,6 +402,99 @@ def show_start_over():
         st.success("Done. Everything you entered has been cleared.", icon="✅")
 
 
+# ---------- Your situation: questions and summary ----------
+
+def start_editing():
+    """Runs when Edit is clicked: show the questions again."""
+    st.session_state["editing_answers"] = True
+
+
+def missing_question_numbers():
+    """The numbers of the questions that have no answer picked yet."""
+    missing = []
+    for number, question in enumerate(QUESTIONS, start=1):
+        if st.session_state.get(f"q_{question['key']}") is None:
+            missing.append(str(number))
+    return missing
+
+
+def show_questions():
+    """The five questions, each in its own big card, and a Save button."""
+    st.warning(PRIVACY_LINE, icon="🛡️")
+    st.markdown("Pick one answer for each question. You can change them later.")
+
+    saved = st.session_state.get("answers") or {}
+
+    for number, question in enumerate(QUESTIONS, start=1):
+        radio_key = f"q_{question['key']}"
+        # When editing, start each question on the answer saved before.
+        if radio_key not in st.session_state and question["key"] in saved:
+            st.session_state[radio_key] = saved[question["key"]]
+
+        with st.container(key=f"card_q_{question['key']}"):
+            st.markdown(f"**Question {number} of {len(QUESTIONS)}**")
+            st.radio(
+                safe_text(question["question"]),
+                question["options"],
+                index=None,  # nothing is picked until the person picks it
+                key=radio_key,
+                format_func=safe_text,  # keeps $ signs as plain dollar signs
+            )
+
+    if st.button("✅ Save my answers", key="save_answers", type="primary", width="stretch"):
+        missing = missing_question_numbers()
+        if missing:
+            st.warning(
+                f"Please answer every question before saving. Still empty: question {', '.join(missing)}.",
+                icon="✋",
+            )
+        else:
+            # Save all five answers together in one dictionary.
+            answers = {}
+            for question in QUESTIONS:
+                answers[question["key"]] = st.session_state[f"q_{question['key']}"]
+            st.session_state["answers"] = answers
+            st.session_state["editing_answers"] = False
+            st.rerun()  # draw the page again, now showing the summary
+
+
+def show_answer_summary(answers):
+    """The "Here's what you told us" card, with an Edit button."""
+    with st.container(key="card_summary"):
+        st.markdown("### 📋 Here's what you told us")
+        lines = []
+        for question in QUESTIONS:
+            answer = answers.get(question["key"], "Not answered")
+            lines.append(f"**{safe_text(question['short'])}:** {safe_text(answer)}")
+        st.markdown("\n\n".join(lines))
+        st.button("✏️ Edit my answers", key="edit_answers", on_click=start_editing, width="stretch")
+
+    st.markdown(
+        "🔒 Your answers stay on this page only, until you close it or click **Start over**."
+    )
+    st.markdown(
+        f"Your answers add short notes under **{NOTES_TITLE}** on each product card."
+    )
+    st.button(
+        "🧭 See the notes on Explore products",
+        key="goto_explore",
+        on_click=go_to,
+        args=("Explore products",),
+        type="primary",
+        width="stretch",
+    )
+
+
+def show_situation():
+    """The Your situation view: the questions, or a summary once saved."""
+    answers = st.session_state.get("answers")
+    editing = st.session_state.get("editing_answers", False)
+    if answers and not editing:
+        show_answer_summary(answers)
+    else:
+        show_questions()
+
+
 # ---------- Explore products: helpers for one card ----------
 
 def get_tier_info(tier):
@@ -410,8 +604,27 @@ def show_worst_year(product, result):
         st.markdown(f"⚠️ **{BIG_LOSS_LINE}**")
 
 
+def show_fit_notes(product):
+    """Card part 6: notes from the Your situation answers.
+    Only shown once the person has saved their answers."""
+    answers = st.session_state.get("answers")
+    if not answers:
+        return
+
+    # scoring.py decides the notes. This function only shows them.
+    notes = fit_notes(product, answers)
+
+    with st.container(key=f"notes_{product['key']}"):
+        st.markdown(f"#### {NOTES_TITLE}")
+        if notes:
+            st.markdown("\n".join(f"- {safe_text(note)}" for note in notes))
+        else:
+            st.markdown(NO_NOTES_LINE)
+        st.markdown(NOTES_DISCLAIMER)
+
+
 def show_numbers(product, result):
-    """Card part 6: every fact, step and source behind the label."""
+    """Card part 7: every fact, step and source behind the label."""
     with st.expander("Show me the numbers", icon="🔢"):
         # The facts from products.py
         loss = product["worst_year_loss_pct"]
@@ -459,7 +672,7 @@ def toggle_compare(product_key):
 
 
 def show_card_actions(product):
-    """Card part 7: the Compare checkbox and the Read aloud button."""
+    """Card part 8: the Compare checkbox and the Read aloud button."""
     key = product["key"]
     box_key = f"compare_box_{key}"
 
@@ -485,6 +698,21 @@ def show_explore():
         "to the wildest (**⚠️ Uncharted Waters**).\n\n"
         "Open **Show me the numbers** on any card to see the facts and sources behind its label."
     )
+
+    # No answers yet: explain where the notes come from, with a button to get there.
+    if not st.session_state.get("answers"):
+        st.markdown(
+            f"💭 Answer the questions on **Your situation** to see short notes "
+            f"on each card under **{NOTES_TITLE}**."
+        )
+        st.button(
+            "🧭 Go to Your situation",
+            key="goto_situation",
+            on_click=go_to,
+            args=("Your situation",),
+            width="stretch",
+        )
+
     for product, result in sorted_products():
         # The key gives this card a name, so the CSS above can draw its border.
         with st.container(key=f"card_{product['key']}"):
@@ -493,6 +721,7 @@ def show_explore():
             show_gauge(result["tier"])
             show_badges(result)
             show_worst_year(product, result)
+            show_fit_notes(product)
             show_numbers(product, result)
             show_card_actions(product)
 
@@ -511,6 +740,8 @@ show_heading()
 
 if st.session_state["view"] == "Welcome":
     show_welcome()
+elif st.session_state["view"] == "Your situation":
+    show_situation()
 elif st.session_state["view"] == "Explore products":
     show_explore()
 else:
