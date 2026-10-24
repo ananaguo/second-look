@@ -2,6 +2,7 @@
 # The screens of Second Look.
 # Run it with:  streamlit run app.py
 
+import json
 import os
 
 import streamlit as st
@@ -26,6 +27,12 @@ st.set_page_config(
     layout="centered",
     initial_sidebar_state="collapsed",
 )
+
+# ---------- Demo mode ----------
+# True: the six sample offers use saved readings from data/sample_answers.json,
+#       so they work without calling Claude (no API credits needed).
+# False: every offer, samples included, is read live by Claude.
+DEMO_MODE = True
 
 # ---------- The five views, in the order their buttons appear ----------
 VIEWS = ["Welcome", "Your situation", "Explore products", "Compare", "Check an offer"]
@@ -110,10 +117,13 @@ EXAMPLE_AMOUNT = 10000
 
 # ---------- Check an offer: settings and words ----------
 
+DATA_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+
 # Where the made-up sample offers live
-SAMPLE_OFFERS_FILE = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), "data", "sample_offers.md"
-)
+SAMPLE_OFFERS_FILE = os.path.join(DATA_FOLDER, "sample_offers.md")
+
+# Where the saved, hand-written readings of those samples live (for demo mode)
+SAMPLE_ANSWERS_FILE = os.path.join(DATA_FOLDER, "sample_answers.json")
 
 # The longest offer someone can paste (keeps Claude calls small)
 OFFER_MAX_CHARS = 6000
@@ -128,6 +138,16 @@ NOT_STATED_QUOTE = "*The offer doesn't say.*"
 OFFER_CLOSING_LINE = (
     "This is a first look, not advice. Before you sign anything, "
     "talk it over with someone you trust."
+)
+
+# Demo mode words (always an icon AND words)
+DEMO_NOTICE = (
+    "📼 **Demo mode is on.** The six sample offers use saved readings, "
+    "so they work without Claude. Anything you paste or change is checked live by Claude."
+)
+DEMO_CARD_LINE = (
+    "📼 **Demo mode:** this is a saved, hand-written reading of a sample offer, "
+    "not a live check by Claude. The label still comes from our own rules."
 )
 
 # ---------- Look and feel: large text, high contrast, big buttons ----------
@@ -779,7 +799,7 @@ def show_explore():
             show_card_actions(product)
 
 
-# ---------- Check an offer: reading the sample file ----------
+# ---------- Check an offer: reading the sample files ----------
 
 def load_sample_offers():
     """Read OFFER 1 to 6 from data/sample_offers.md.
@@ -797,6 +817,27 @@ def load_sample_offers():
         number, _, body = part.partition("\n")
         samples[f"OFFER {number.strip()}"] = body.strip()
     return samples
+
+
+def load_demo_answers():
+    """Read the saved readings from data/sample_answers.json.
+    Returns a dictionary like {"OFFER 1": {...}, ...}.
+    Returns an empty dictionary if the file is missing or broken."""
+    try:
+        with open(SAMPLE_ANSWERS_FILE, encoding="utf-8") as file:
+            saved = json.load(file)
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return saved if isinstance(saved, dict) else {}
+
+
+def find_demo_answer(text, samples, demo_answers):
+    """The saved reading for this text, if it is exactly one of the sample offers.
+    None if the text was pasted or changed, or if there is no saved reading."""
+    for name, sample_text in samples.items():
+        if text == sample_text.strip() and name in demo_answers:
+            return demo_answers[name]
+    return None
 
 
 def load_sample(samples):
@@ -993,7 +1034,10 @@ def show_fact(title, words, part):
 def show_offer_facts(answer):
     """What the offer says about each fact, with its quote."""
     st.markdown("#### 🔍 What the offer says")
-    st.markdown("The words in italics are quoted from the offer.")
+    st.markdown(
+        "These are the offer's own claims. The words in italics are quoted from it. "
+        "The label above comes from our rules, not from these claims."
+    )
 
     backed = get_part(answer, "government_backed")
     loss = get_part(answer, "loss_possible")
@@ -1001,8 +1045,9 @@ def show_offer_facts(answer):
     costs = get_part(answer, "yearly_costs")
     promised = get_part(answer, "promised_return")
 
-    show_fact("Backed by the U.S. government?", yes_no(backed.get("value")), backed)
-    show_fact("Could you lose money?", yes_no(loss.get("value")), loss)
+    # The titles say "Says…" so a claim is never mistaken for our own finding.
+    show_fact("Says it's backed by the U.S. government?", yes_no(backed.get("value")), backed)
+    show_fact("Says you could lose money?", yes_no(loss.get("value")), loss)
     show_fact("Getting money out", ACCESS_BADGES.get(access_word(access), "Not stated"), access)
     show_fact("Yearly costs", costs_words(costs), costs)
     show_fact("Promised return", promised_words(promised), promised)
@@ -1041,7 +1086,7 @@ def show_questions_to_ask(answer):
 
 
 def show_plain_summary(answer):
-    """Claude's plain-language summary of the offer."""
+    """The plain-language summary of the offer."""
     summary = answer.get("plain_summary")
     if isinstance(summary, str) and summary.strip():
         st.markdown(f"#### 📝 In plain words\n\n{safe_text(summary)}")
@@ -1066,8 +1111,9 @@ def show_offer_numbers(result, where_from):
         )
 
 
-def show_offer_card(answer):
-    """The 'Your offer' card, built like the Explore cards."""
+def show_offer_card(answer, is_demo):
+    """The 'Your offer' card, built like the Explore cards.
+    is_demo is True when the reading is a saved one, not a live Claude check."""
     facts, product, where_from = build_offer_facts(answer)
 
     # scoring.py picks the tier, using the promised return for the scam check.
@@ -1086,6 +1132,8 @@ def show_offer_card(answer):
 
     with st.container(key="card_offer"):
         st.markdown("### 📄 Your offer")
+        if is_demo:
+            st.markdown(DEMO_CARD_LINE)
         st.markdown(f"**We compared this to:** {safe_text(compared_to)}")
         show_tier_heading(tier)
         show_gauge(tier)
@@ -1111,6 +1159,8 @@ def show_check_offer():
 
     # The sample dropdown fills the big text box.
     samples = load_sample_offers()
+    demo_answers = load_demo_answers() if DEMO_MODE else {}
+
     if samples:
         st.selectbox(
             SAMPLE_LABEL,
@@ -1121,6 +1171,8 @@ def show_check_offer():
             on_change=load_sample,
             args=(samples,),
         )
+        if demo_answers:
+            st.markdown(DEMO_NOTICE)
     else:
         st.markdown("📂 Sample offers not found. Check that data/sample_offers.md exists.")
 
@@ -1135,24 +1187,31 @@ def show_check_offer():
     clicked = st.button(CHECK_BUTTON, key="check_offer", type="primary", width="stretch")
 
     text = st.session_state["offer_text"].strip()
-    # Answers we already have, by offer text, so Claude is never asked twice.
+    # Readings we already have, by offer text, so Claude is never asked twice.
+    # Each one is stored as {"answer": ..., "is_demo": True or False}.
     cache = st.session_state.setdefault("offer_cache", {})
 
-    if clicked:
-        if not text:
-            st.warning("Please paste an offer or pick a sample first.", icon="✋")
-        elif text not in cache:
+    if clicked and not text:
+        st.warning("Please paste an offer or pick a sample first.", icon="✋")
+    elif clicked and text not in cache:
+        demo_answer = find_demo_answer(text, samples, demo_answers)
+        if demo_answer is not None:
+            # A sample offer in demo mode: use the saved reading, no Claude call.
+            cache[text] = {"answer": demo_answer, "is_demo": True}
+        else:
+            # Anything else: ask Claude.
             with st.spinner(SPINNER_TEXT):
                 product_names = [product["name"] for product in PRODUCTS]
                 answer, error = read_offer(text, product_names)
             if error:
                 st.error(error, icon="😕")
             else:
-                cache[text] = answer
+                cache[text] = {"answer": answer, "is_demo": False}
 
-    # Show the card whenever we already have an answer for this exact text.
+    # Show the card whenever we already have a reading for this exact text.
     if text and text in cache:
-        show_offer_card(cache[text])
+        entry = cache[text]
+        show_offer_card(entry["answer"], entry["is_demo"])
 
 
 # ---------- Build the page, top to bottom ----------

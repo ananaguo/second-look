@@ -1,0 +1,248 @@
+{
+  "_about": "Hand-written test readings of the six FICTIONAL sample offers in data/sample_offers.md. Not real data, and not written by a live Claude call. Each one follows the JSON shape in claude_helper.py. Every quote is copied word for word from the sample offer.",
+  "OFFER 1": {
+    "category": "Variable annuity (stock funds)",
+    "government_backed": {
+      "value": "no",
+      "quote": "a contract backed by an insurance company with decades of experience"
+    },
+    "loss_possible": {
+      "value": "unknown",
+      "quote": "unknown"
+    },
+    "access": {
+      "value": "locked_years",
+      "quote": "a surrender charge applies if you leave early: 7% in year one, falling 1% a year after that"
+    },
+    "yearly_costs": {
+      "value_pct": 1.3,
+      "has_surrender_or_sales_charge": "yes",
+      "quote": "There is a yearly contract fee of 1.30%, plus the fees of the funds you pick"
+    },
+    "promised_return": {
+      "value_pct": "unknown",
+      "guaranteed": "unknown",
+      "quote": "unknown"
+    },
+    "red_flags": [
+      {
+        "flag": "Pressure to decide quickly",
+        "quote": "My manager tells me this rate is only available until Friday"
+      }
+    ],
+    "questions_to_ask": [
+      "What happens to my money if the stock market falls?",
+      "How much are the fees of the funds inside the plan, on top of the 1.30% contract fee?",
+      "How much would I pay to take money out in each of the first seven years?",
+      "What rate are you talking about, and why does it end on Friday?",
+      "Can I take the contract home and have someone I trust read it first?"
+    ],
+    "plain_summary": "This is a variable annuity, a contract with an insurance company. Your money goes into stock funds. The letter says your account climbs when the market climbs, but it does not say what happens when the market falls. You pay a yearly fee of 1.30%, plus the fees of the funds. A surrender charge (a fee for taking your money out early) starts at 7% in year one and drops 1% a year.",
+    "spoken_summary": "This is a variable annuity, an insurance contract that puts your money in stock funds. It charges one point three percent a year, plus fund fees. Leaving early costs seven percent in the first year, then one percent less each year. The letter doesn't say what happens if the market falls."
+  },
+  "OFFER 2": {
+    "category": "12-month CD at an FDIC-insured bank",
+    "government_backed": {
+      "value": "yes",
+      "quote": "Your deposit is insured by the FDIC up to the standard limits"
+    },
+    "loss_possible": {
+      "value": "no",
+      "quote": "at the end of the term you get your deposit back plus the interest you earned"
+    },
+    "access": {
+      "value": "small_penalty",
+      "quote": "an early withdrawal penalty of 90 days' interest applies"
+    },
+    "yearly_costs": {
+      "value_pct": 0,
+      "has_surrender_or_sales_charge": "no",
+      "quote": "no yearly fees and no hidden charges"
+    },
+    "promised_return": {
+      "value_pct": 4.0,
+      "guaranteed": "no",
+      "quote": "a 12-month certificate of deposit paying 4.00% APY"
+    },
+    "red_flags": [],
+    "questions_to_ask": [
+      "Is there a smallest amount I must deposit to get 4.00% APY?",
+      "What happens to my money when the 12 months end? Does the CD renew by itself?",
+      "How much would 90 days' interest be on my deposit?",
+      "Can you show me this rate in writing before I open the CD?"
+    ],
+    "plain_summary": "This is a 12-month CD (certificate of deposit), a bank account where you leave your money for a set time. It pays 4.00% APY (the interest you earn in a year). The rate stays the same for 12 months. The deposit is insured by the FDIC up to the standard limits. Taking money out early costs 90 days' interest.",
+    "spoken_summary": "This is a twelve-month bank CD paying four percent a year. The rate stays the same for the whole year. Your deposit is insured by the FDIC up to the standard limits. If you take money out early, you give up ninety days of interest."
+  },
+  "OFFER 3": {
+    "category": "unknown",
+    "government_backed": {
+      "value": "unknown",
+      "quote": "unknown"
+    },
+    "loss_possible": {
+      "value": "no",
+      "quote": "with none of the ups and downs of the stock market"
+    },
+    "access": {
+      "value": "unknown",
+      "quote": "unknown"
+    },
+    "yearly_costs": {
+      "value_pct": "unknown",
+      "has_surrender_or_sales_charge": "unknown",
+      "quote": "unknown"
+    },
+    "promised_return": {
+      "value_pct": 12,
+      "guaranteed": "yes",
+      "quote": "Our program pays guaranteed 12% a year with no risk"
+    },
+    "red_flags": [
+      {
+        "flag": "Guaranteed high returns",
+        "quote": "Our program pays guaranteed 12% a year"
+      },
+      {
+        "flag": "Says there is no risk",
+        "quote": "with no risk"
+      },
+      {
+        "flag": "Asks for payment by wire",
+        "quote": "simply wire your funds to our secure holding account"
+      },
+      {
+        "flag": "Asks you to keep it secret",
+        "quote": "please keep this between us"
+      }
+    ],
+    "questions_to_ask": [
+      "Are you and Silverline Wealth Group licensed, and what is your license number?",
+      "How exactly does the money earn 12% a year?",
+      "Why must I wire the money instead of paying by check?",
+      "Why should I keep this from my family, my bank and my advisor?",
+      "Where is the money held, and in whose name?"
+    ],
+    "plain_summary": "This letter offers a program it says pays a guaranteed 12% a year with no risk. It does not say what the program is, who backs it, what it costs, or how you get your money out. It asks you to send money by wire and to keep the offer secret from your family, your bank and your advisor.",
+    "spoken_summary": "This letter says it pays twelve percent a year, guaranteed, with no risk. It doesn't say what the program is or who stands behind it. It asks you to wire your money and to keep the offer a secret from your family, your bank and your advisor."
+  },
+  "OFFER 4": {
+    "category": "Fixed annuity (multi-year guarantee)",
+    "government_backed": {
+      "value": "no",
+      "quote": "The guarantee comes from Pacific Shores Life, the insurance company that issues your contract"
+    },
+    "loss_possible": {
+      "value": "no",
+      "quote": "your account value won't go down when the market does"
+    },
+    "access": {
+      "value": "locked_years",
+      "quote": "A 6-year surrender schedule applies"
+    },
+    "yearly_costs": {
+      "value_pct": "unknown",
+      "has_surrender_or_sales_charge": "yes",
+      "quote": "you'll pay a surrender charge if you take out more than the contract allows during the first six years"
+    },
+    "promised_return": {
+      "value_pct": 5.1,
+      "guaranteed": "yes",
+      "quote": "a fixed annuity that guarantees 5.1% a year for 5 years"
+    },
+    "red_flags": [],
+    "questions_to_ask": [
+      "How much is the surrender charge in each of the six years?",
+      "How much can I take out each year without paying a surrender charge?",
+      "What rate will I earn in year six, after the 5.1% guarantee ends?",
+      "How many days is the free-look period, and how do I cancel during it?",
+      "What happens to my money if Pacific Shores Life has money trouble?"
+    ],
+    "plain_summary": "This is a fixed annuity, a contract with an insurance company. It promises 5.1% a year for 5 years. The money is not in the stock market. The promise comes from Pacific Shores Life, the insurance company. A surrender charge (a fee for taking your money out early) applies for 6 years, one year longer than the 5.1% guarantee.",
+    "spoken_summary": "This is a fixed annuity from Pacific Shores Life. It promises five point one percent a year for five years, and it is not in the stock market. If you take out more than the contract allows in the first six years, you pay a surrender charge."
+  },
+  "OFFER 5": {
+    "category": "Bitcoin",
+    "government_backed": {
+      "value": "unknown",
+      "quote": "unknown"
+    },
+    "loss_possible": {
+      "value": "unknown",
+      "quote": "unknown"
+    },
+    "access": {
+      "value": "unknown",
+      "quote": "unknown"
+    },
+    "yearly_costs": {
+      "value_pct": "unknown",
+      "has_surrender_or_sales_charge": "unknown",
+      "quote": "unknown"
+    },
+    "promised_return": {
+      "value_pct": 20,
+      "guaranteed": "no",
+      "quote": "you can earn 20% a year on your Bitcoin, paid out straight into your account"
+    },
+    "red_flags": [
+      {
+        "flag": "Asks for payment in crypto",
+        "quote": "move your Bitcoin into the Vault"
+      },
+      {
+        "flag": "Says everyone is doing it",
+        "quote": "people just like you are already earning with Lumacoin Vault"
+      }
+    ],
+    "questions_to_ask": [
+      "Who borrows my Bitcoin, and what happens if they don't pay it back?",
+      "Is the 20% a year promised, or can it change?",
+      "What fees does the app charge to buy, move or take out Bitcoin?",
+      "How do I take my Bitcoin out of the Vault, and how long does it take?",
+      "Is my account protected by anyone if the company fails?"
+    ],
+    "plain_summary": "This is an ad for Lumacoin Vault, a phone app. You move Bitcoin (a digital currency) into the app, and the app lends it out to others. The ad says you can earn 20% a year. It does not say who borrows it, what the fees are, or how you take your Bitcoin back out.",
+    "spoken_summary": "This is an ad for a phone app called Lumacoin Vault. It says it lends out your Bitcoin and that you can earn twenty percent a year. It doesn't say who borrows the Bitcoin, what the fees are, or how you get it back."
+  },
+  "OFFER 6": {
+    "category": "unknown",
+    "government_backed": {
+      "value": "unknown",
+      "quote": "unknown"
+    },
+    "loss_possible": {
+      "value": "no",
+      "quote": "a safe investment with great returns"
+    },
+    "access": {
+      "value": "unknown",
+      "quote": "unknown"
+    },
+    "yearly_costs": {
+      "value_pct": "unknown",
+      "has_surrender_or_sales_charge": "unknown",
+      "quote": "unknown"
+    },
+    "promised_return": {
+      "value_pct": "unknown",
+      "guaranteed": "unknown",
+      "quote": "a safe investment with great returns"
+    },
+    "red_flags": [
+      {
+        "flag": "Gives no license or company name",
+        "quote": "My name is Gary"
+      }
+    ],
+    "questions_to_ask": [
+      "What is the name of your company, and are you licensed? What is your license number?",
+      "What exactly is the investment, and who holds the money?",
+      "How much could I earn, and how much could I lose?",
+      "What fees would I pay, and how do I take my money out?",
+      "Can you send me the details in writing before we meet?"
+    ],
+    "plain_summary": "This is a short letter from someone named Gary. He says he has a safe investment with great returns, but he does not say what it is. The letter gives no company name, no costs and no numbers, and says nothing about taking money out. He asks you to call him to hear more.",
+    "spoken_summary": "This is a short letter from someone named Gary. He says he has a safe investment with great returns, but he doesn't say what it is. There's no company name and no numbers. He asks you to call him to hear more."
+  }
+}
