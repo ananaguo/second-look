@@ -29,6 +29,15 @@ from scoring import (
     fit_notes,
     tier_label,
 )
+from voice_helper import (
+    DEFAULT_SPEED,
+    SPEED_NORMAL,
+    SPEED_SLOWER,
+    dollars_in_words,
+    get_speech,
+    get_transcript,
+    number_words,
+)
 
 # ---------- Page setup (this must be the first Streamlit command) ----------
 st.set_page_config(
@@ -125,6 +134,32 @@ BIG_LOSS_LINE = "Could lose most or all."
 # The amount used in every "worst year" example
 EXAMPLE_AMOUNT = 10000
 
+# What the heading says when a product has no normal tier
+OFF_MAP_SENTENCE = "No tier: this needs a closer look."
+NOT_RATED_SENTENCE = "No tier yet: we are missing facts."
+
+# ---------- Voice: words and settings ----------
+SPEED_LABEL = "Voice speed"
+SPEED_CHOICES = [SPEED_SLOWER, SPEED_NORMAL]
+SPEED_ICONS = {SPEED_SLOWER: "🐢", SPEED_NORMAL: "🚶"}
+
+READ_BUTTON = "🔊 Read aloud"
+LISTEN_BUTTON = "🔊 Listen to the result"
+WELCOME_LISTEN_BUTTON = "🔊 Hear this page"
+STOP_BUTTON = "⏹️ Stop and hide the voice"
+VOICE_SPINNER = "Getting the voice ready…"
+CAPTIONS_TITLE = "💬 Captions: the words being spoken"
+
+# What "Hear this page" says on the Welcome view
+WELCOME_WORDS = (
+    "Welcome to Second Look. "
+    "Every savings or investment product gets one plain label, "
+    "from Safe Harbor to Uncharted Waters. "
+    "You can always see the numbers behind every label. "
+    "You can also check an offer that someone made you. "
+    "Nothing is saved. When you close this page, everything you typed is gone."
+)
+
 # ---------- Check an offer: settings and words ----------
 
 DATA_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
@@ -148,6 +183,23 @@ NOT_STATED_QUOTE = "*The offer doesn't say.*"
 OFFER_CLOSING_LINE = (
     "This is a first look, not advice. Before you sign anything, "
     "talk it over with someone you trust."
+)
+
+# Voice input on Check an offer
+RECORD_LABEL = "Or tell us what the salesperson said"
+RECORD_HELP_LINE = (
+    "🎙️ Press the microphone, say what you were told (or read the letter aloud), "
+    "then press stop. Don't say your name, account numbers, or Social Security number. "
+    "Your recording is sent to Cartesia, a voice service, to turn it into words."
+)
+LISTEN_SPINNER = "Listening to your recording…"
+HEARD_TITLE = "👂 I heard:"
+HEARD_CHECK_LINE = "Is this right? Nothing goes in the box until you say yes."
+USE_HEARD_BUTTON = "✅ Yes, use this"
+TRY_AGAIN_BUTTON = "🔁 Try again"
+HEARD_USED_LINE = (
+    "Done. What you said is now in the box above. "
+    "Read it over, then click **🔎 Check this offer**."
 )
 
 # Tags next to each quote: always an icon AND words (the words come from checks.py)
@@ -256,7 +308,7 @@ html { font-size: 22px; }
     margin: 1.5rem 0;
 }
 
-/* Cards (products, questions, summary, offer, help, scam): a thick dark border, lots of room */
+/* Cards (products, questions, summary, offer, help, scam, voice): a thick dark border, lots of room */
 .stApp [class*="st-key-card_"] {
     border: 3px solid #111111;
     border-radius: 14px;
@@ -269,7 +321,7 @@ html { font-size: 22px; }
     border-width: 6px;
 }
 
-/* Boxes inside a card ("Worth thinking about", "Warning signs") */
+/* Boxes inside a card ("Worth thinking about", "Warning signs", captions) */
 .stApp [class*="st-key-notes_"] {
     border: 2px dashed #111111;
     border-radius: 10px;
@@ -327,9 +379,10 @@ html { font-size: 22px; }
     outline-offset: 3px;
 }
 
-/* Check an offer: big labels on the text box and the dropdown */
+/* Check an offer: big labels on the text box, the dropdown and the recorder */
 .stApp [data-testid="stTextArea"] [data-testid="stWidgetLabel"] p,
-.stApp [data-testid="stSelectbox"] [data-testid="stWidgetLabel"] p {
+.stApp [data-testid="stSelectbox"] [data-testid="stWidgetLabel"] p,
+.stApp [data-testid="stAudioInput"] [data-testid="stWidgetLabel"] p {
     font-size: 28px !important;
     font-weight: 700;
     line-height: 1.3;
@@ -352,6 +405,19 @@ html { font-size: 22px; }
 .stApp [data-testid="InputInstructions"] * {
     color: #111111 !important;
     font-size: 18px !important;
+}
+
+/* The recorder: a thick border so it is easy to find */
+.stApp [data-testid="stAudioInput"] > div:last-child {
+    border: 2px solid #111111;
+    border-radius: 10px;
+    min-height: 72px;
+}
+
+/* The voice player: full width and tall, so its buttons are easy to press */
+.stApp audio {
+    width: 100%;
+    height: 64px;
 }
 
 /* "Show me the numbers": big title and a clear border */
@@ -416,7 +482,8 @@ html { font-size: 22px; }
 .stApp a:focus-visible,
 .stApp input:focus-visible,
 .stApp textarea:focus-visible,
-.stApp summary:focus-visible {
+.stApp summary:focus-visible,
+.stApp audio:focus-visible {
     outline: 4px solid #111111 !important;
     outline-offset: 3px !important;
 }
@@ -445,8 +512,10 @@ header[data-testid="stHeader"],
 # ---------- Small helper functions ----------
 
 def go_to(view_name):
-    """Runs when a page button is clicked: remember which page to show."""
+    """Runs when a page button is clicked: remember which page to show.
+    Any voice that was playing stops, so it never starts again by surprise."""
     st.session_state["view"] = view_name
+    st.session_state.pop("now_speaking", None)
 
 
 def start_over():
@@ -496,21 +565,6 @@ def show_heading():
     st.title(st.session_state["view"])
 
 
-def show_welcome():
-    """What Second Look does, in three short sentences."""
-    st.markdown(
-        "Every savings or investment product gets one plain label, "
-        "from **Safe Harbor** to **Uncharted Waters**.\n\n"
-        "You can always see the numbers behind every label.\n\n"
-        "You can also check an offer that someone made you."
-    )
-    st.markdown(
-        "🔒 **Nothing is saved.** When you close this page, "
-        "everything you typed is gone."
-    )
-    st.markdown("Use the big buttons at the top to choose a page.")
-
-
 def show_coming_soon():
     """Placeholder for views we have not built yet."""
     st.markdown("🚧 **Coming soon.** This page is still being built.")
@@ -524,6 +578,180 @@ def show_start_over():
     # Confirm that it worked, then forget the flag
     if st.session_state.pop("just_cleared", False):
         st.success("Done. Everything you entered has been cleared.", icon="✅")
+
+
+# ---------- Voice: speaking out loud, with captions ----------
+# Only one thing speaks at a time. st.session_state["now_speaking"] holds
+# the exact words being spoken. A player appears wherever those words belong.
+
+def current_speed():
+    """The voice speed picked on the Welcome view ("Slower" unless changed)."""
+    return st.session_state.get("voice_speed", DEFAULT_SPEED)
+
+
+def save_speed():
+    """Runs when the speed is changed. We keep our own copy,
+    because Streamlit forgets a choice when you visit another page."""
+    st.session_state["voice_speed"] = st.session_state["voice_speed_choice"]
+
+
+def start_speaking(words):
+    """Runs when a Read aloud or Listen button is clicked."""
+    st.session_state["now_speaking"] = words
+
+
+def stop_speaking():
+    """Runs when Stop is clicked: hide the player, which stops the sound."""
+    st.session_state.pop("now_speaking", None)
+
+
+def end_sentence(text):
+    """Add a period at the end, unless the text already ends with . ! or ?"""
+    text = str(text).strip()
+    if not text or text[-1] in ".!?":
+        return text
+    return text + "."
+
+
+def get_tier_info(tier):
+    """Find the tier's name and icon in products.py. None if it has no tier."""
+    for t in TIERS:
+        if t["number"] == tier:
+            return t
+    return None
+
+
+def tier_name_and_sentence(tier):
+    """The tier's name and its one sentence, for speaking."""
+    info = get_tier_info(tier)
+    if info is not None:
+        return info["name"], info["sentence"]
+    if tier == "off_map":
+        return tier_label(tier), OFF_MAP_SENTENCE
+    return tier_label(tier), NOT_RATED_SENTENCE
+
+
+def badge_words(result):
+    """The two badges, said with their titles so they make sense when heard."""
+    return f"Getting money out: {result['access_badge']}. Cost: {result['cost_badge']}."
+
+
+def card_words(product, result):
+    """What Read aloud says for one product card:
+    [tier name]. [tier sentence]. [product name]: [one_line].
+    In its worst year, ten thousand dollars became [X]. [access badge]. [cost badge]."""
+    name, sentence = tier_name_and_sentence(result["tier"])
+
+    lost = result["worst_case_dollars"]
+    if lost is None:
+        worst = "We don't know its worst year yet."
+    else:
+        left_over = max(0, EXAMPLE_AMOUNT - lost)
+        worst = f"In its worst year, ten thousand dollars became {dollars_in_words(left_over)}."
+
+    parts = [
+        end_sentence(name),
+        end_sentence(sentence),
+        end_sentence(f"{product['name']}: {product['one_line']}"),
+        worst,
+        badge_words(result),
+    ]
+    return " ".join(parts)
+
+
+def offer_words(answer, result):
+    """What Listen to the result says for an offer:
+    the spoken summary, our label and its sentence, any warning signs,
+    the two badges, and the closing reminder."""
+    parts = []
+    summary = answer.get("spoken_summary")
+    if isinstance(summary, str) and summary.strip():
+        parts.append(end_sentence(summary))
+
+    name, sentence = tier_name_and_sentence(result["tier"])
+    parts.append(end_sentence(f"Our label for this offer: {name}"))
+    parts.append(end_sentence(sentence))
+
+    count = answer.get("guards", {}).get("red_flag_count", 0)
+    if count:
+        signs = "sign" if count == 1 else "signs"
+        parts.append(f"We found {number_words(count)} warning {signs} in this offer.")
+
+    parts.append(badge_words(result))
+    parts.append(OFFER_CLOSING_LINE)
+    return " ".join(parts)
+
+
+def show_voice(words):
+    """If these words were asked for, play them and show them as captions.
+    If the voice fails, the captions still show, with a calm message."""
+    if st.session_state.get("now_speaking") != words:
+        return
+
+    with st.spinner(VOICE_SPINNER):
+        audio, error = get_speech(words, current_speed())
+
+    if error:
+        st.info(error, icon="🔇")
+    else:
+        # It plays by itself once. The player's buttons replay or pause it.
+        st.audio(audio, format="audio/wav", autoplay=True)
+
+    # The captions: exactly the words being spoken
+    with st.container(key="notes_captions"):
+        st.markdown(f"#### {CAPTIONS_TITLE}")
+        st.markdown(safe_text(words))
+
+    st.button(STOP_BUTTON, key="stop_speaking", on_click=stop_speaking, width="stretch")
+
+
+# ---------- Welcome ----------
+
+def show_speed_setting():
+    """The voice card: the speed choice, and a button to try the voice."""
+    # Put back the saved choice when coming back to this page.
+    if "voice_speed_choice" not in st.session_state:
+        st.session_state["voice_speed_choice"] = current_speed()
+
+    with st.container(key="card_voice"):
+        st.markdown("### 🔊 Voice")
+        st.markdown(
+            "Second Look can read to you. Every product card has a **🔊 Read aloud** button, "
+            "and **Check an offer** has **🔊 Listen to the result**. "
+            "You can also tell us about an offer out loud."
+        )
+        st.radio(
+            SPEED_LABEL,
+            SPEED_CHOICES,
+            key="voice_speed_choice",
+            on_change=save_speed,
+            format_func=lambda choice: f"{SPEED_ICONS[choice]} {choice}",
+        )
+        st.button(
+            WELCOME_LISTEN_BUTTON,
+            key="read_welcome",
+            on_click=start_speaking,
+            args=(WELCOME_WORDS,),
+            type="primary",
+            width="stretch",
+        )
+        show_voice(WELCOME_WORDS)
+
+
+def show_welcome():
+    """What Second Look does, in three short sentences, and the voice setting."""
+    st.markdown(
+        "Every savings or investment product gets one plain label, "
+        "from **Safe Harbor** to **Uncharted Waters**.\n\n"
+        "You can always see the numbers behind every label.\n\n"
+        "You can also check an offer that someone made you."
+    )
+    st.markdown(
+        "🔒 **Nothing is saved.** When you close this page, "
+        "everything you typed is gone."
+    )
+    show_speed_setting()
+    st.markdown("Use the big buttons at the top to choose a page.")
 
 
 # ---------- Safety cards: help, scam, and "Something looks wrong?" ----------
@@ -668,14 +896,6 @@ def show_situation():
 
 # ---------- Explore products: helpers for one card ----------
 
-def get_tier_info(tier):
-    """Find the tier's name and icon in products.py. None if it has no tier."""
-    for t in TIERS:
-        if t["number"] == tier:
-            return t
-    return None
-
-
 def tier_order(row):
     """Sorting number for a (product, result) pair: tier 1 first, tier 6 last.
     Products with no normal tier go at the very end."""
@@ -716,9 +936,9 @@ def show_tier_heading(tier):
     if info is not None:
         st.markdown(f"### {info['icon']} {info['name']}\n\n**Tier {info['number']} of 6**")
     elif tier == "off_map":
-        st.markdown(f"### ⚠️ {tier_label(tier)}\n\n**No tier: this needs a closer look**")
+        st.markdown(f"### ⚠️ {tier_label(tier)}\n\n**{OFF_MAP_SENTENCE}**")
     else:
-        st.markdown(f"### ❓ {tier_label(tier)}\n\n**No tier yet: we are missing facts**")
+        st.markdown(f"### ❓ {tier_label(tier)}\n\n**{NOT_RATED_SENTENCE}**")
 
 
 def show_product_name(product):
@@ -726,8 +946,23 @@ def show_product_name(product):
     st.markdown(f"#### {safe_text(product['name'])}\n\n{safe_text(product['one_line'])}")
 
 
+def show_read_aloud(product, result):
+    """Card part 3: the Read aloud button, near the top so it is easy to find.
+    When clicked, the voice and the captions appear right under it."""
+    words = card_words(product, result)
+    st.button(
+        READ_BUTTON,
+        key=f"read_{product['key']}",
+        on_click=start_speaking,
+        args=(words,),
+        type="primary",
+        width="stretch",
+    )
+    show_voice(words)
+
+
 def show_gauge(tier):
-    """Card part 3: the two gauges, drawn with blocks AND words."""
+    """Card part 4: the two gauges, drawn with blocks AND words."""
     if not isinstance(tier, int):
         st.markdown("**Rough water:** not known yet\n\n**Possible catch:** not known yet")
         return
@@ -745,7 +980,7 @@ def show_gauge(tier):
 
 
 def show_badges(result):
-    """Card part 4: the access badge and the cost badge, as big as the tier name."""
+    """Card part 5: the access badge and the cost badge, as big as the tier name."""
     access = result["access_badge"]
     cost = result["cost_badge"]
     left, right = st.columns(2, gap="medium")
@@ -756,7 +991,7 @@ def show_badges(result):
 
 
 def show_worst_year(product, result):
-    """Card part 5: what $10,000 would have become in the worst year."""
+    """Card part 6: what $10,000 would have become in the worst year."""
     tier = result["tier"]
 
     if tier == 1:
@@ -776,7 +1011,7 @@ def show_worst_year(product, result):
 
 
 def show_fit_notes(product):
-    """Card part 6: notes from the Your situation answers.
+    """Card part 7: notes from the Your situation answers.
     Only shown once the person has saved their answers."""
     answers = st.session_state.get("answers")
     if not answers:
@@ -795,7 +1030,7 @@ def show_fit_notes(product):
 
 
 def show_numbers(product, result):
-    """Card part 7: every fact, step and source behind the label."""
+    """Card part 8: every fact, step and source behind the label."""
     with st.expander("Show me the numbers", icon="🔢"):
         # The facts from products.py
         loss = product["worst_year_loss_pct"]
@@ -842,8 +1077,8 @@ def toggle_compare(product_key):
         chosen.remove(product_key)
 
 
-def show_card_actions(product):
-    """Card part 8: the Compare checkbox and the Read aloud button."""
+def show_compare_box(product):
+    """Card part 9: the Compare checkbox."""
     key = product["key"]
     box_key = f"compare_box_{key}"
 
@@ -851,15 +1086,7 @@ def show_card_actions(product):
     if box_key not in st.session_state:
         st.session_state[box_key] = key in st.session_state.get("compare_keys", [])
 
-    left, right = st.columns(2, gap="medium", vertical_alignment="center")
-    with left:
-        st.checkbox("Compare", key=box_key, on_change=toggle_compare, args=(key,))
-    with right:
-        read_clicked = st.button("🔊 Read aloud", key=f"read_{key}", width="stretch")
-
-    # Shown full width under the two columns
-    if read_clicked:
-        st.info("Coming in M8. Read aloud is not built yet.", icon="🚧")
+    st.checkbox("Compare", key=box_key, on_change=toggle_compare, args=(key,))
 
 
 def show_explore():
@@ -867,7 +1094,8 @@ def show_explore():
     st.markdown(
         "Every product is listed here, from the calmest water (**⚓ Safe Harbor**) "
         "to the wildest (**⚠️ Uncharted Waters**).\n\n"
-        "Open **Show me the numbers** on any card to see the facts and sources behind its label."
+        "Press **🔊 Read aloud** on any card to hear it. "
+        "Open **Show me the numbers** to see the facts and sources behind its label."
     )
 
     # No answers yet: explain where the notes come from, with a button to get there.
@@ -889,12 +1117,13 @@ def show_explore():
         with st.container(key=f"card_{product['key']}"):
             show_tier_heading(result["tier"])
             show_product_name(product)
+            show_read_aloud(product, result)
             show_gauge(result["tier"])
             show_badges(result)
             show_worst_year(product, result)
             show_fit_notes(product)
             show_numbers(product, result)
-            show_card_actions(product)
+            show_compare_box(product)
 
     # The scam card, the help card and "Something looks wrong?"
     show_safety_cards()
@@ -954,6 +1183,71 @@ def load_sample(samples):
     choice = st.session_state.get("sample_choice")
     if choice in samples:
         st.session_state["offer_text"] = samples[choice]
+
+
+# ---------- Check an offer: telling us out loud ----------
+# 1. The person records with st.audio_input.
+# 2. Cartesia turns the recording into words (once per recording).
+# 3. We show "I heard: …". Only "Yes, use this" puts the words in the box.
+
+def forget_recording():
+    """Clear the recording and what we heard.
+    A new number in the recorder's key gives a fresh, empty recorder."""
+    st.session_state["recording_round"] = st.session_state.get("recording_round", 0) + 1
+    for key in ("heard_for", "heard_text", "heard_error"):
+        st.session_state.pop(key, None)
+
+
+def use_heard_text():
+    """Runs when "Yes, use this" is clicked: put what we heard in the offer box."""
+    heard = st.session_state.get("heard_text") or ""
+    st.session_state["offer_text"] = heard[:OFFER_MAX_CHARS]
+    st.session_state["saved_offer_text"] = st.session_state["offer_text"]
+    st.session_state["sample_choice"] = None  # it isn't a sample any more
+    st.session_state["heard_used"] = True     # a one-time "Done" message
+    forget_recording()
+
+
+def show_voice_input():
+    """The recorder, and the "I heard: …" card with its two buttons."""
+    st.markdown(RECORD_HELP_LINE)
+    round_number = st.session_state.get("recording_round", 0)
+    recording = st.audio_input(RECORD_LABEL, key=f"offer_audio_{round_number}")
+
+    # Just confirmed: say so, then forget the flag.
+    if st.session_state.pop("heard_used", False):
+        st.success(HEARD_USED_LINE, icon="✅")
+
+    if recording is None:
+        return
+
+    # Send each recording to Cartesia only once, not on every click.
+    if st.session_state.get("heard_for") != recording.file_id:
+        with st.spinner(LISTEN_SPINNER):
+            heard, error = get_transcript(recording)
+        st.session_state["heard_for"] = recording.file_id
+        st.session_state["heard_text"] = heard
+        st.session_state["heard_error"] = error
+
+    heard = st.session_state.get("heard_text")
+    error = st.session_state.get("heard_error")
+
+    with st.container(key="card_heard"):
+        if error:
+            st.info(error, icon="🎙️")
+            st.button(TRY_AGAIN_BUTTON, key="heard_try_again", on_click=forget_recording, width="stretch")
+            return
+
+        st.markdown(f"### {HEARD_TITLE}")
+        st.markdown(quote_md(heard))
+        st.markdown(HEARD_CHECK_LINE)
+        left, right = st.columns(2, gap="medium")
+        with left:
+            st.button(USE_HEARD_BUTTON, key="heard_yes", on_click=use_heard_text,
+                      type="primary", width="stretch")
+        with right:
+            st.button(TRY_AGAIN_BUTTON, key="heard_try_again", on_click=forget_recording,
+                      width="stretch")
 
 
 # ---------- Check an offer: reading Claude's answer safely ----------
@@ -1282,6 +1576,19 @@ def show_offer_card(answer, is_demo):
             st.markdown(DEMO_CARD_LINE)
         st.markdown(f"**We compared this to:** {safe_text(compared_to)}")
         show_tier_heading(tier)
+
+        # Listen to the result: near the top, so it is easy to find.
+        words = offer_words(answer, result)
+        st.button(
+            LISTEN_BUTTON,
+            key="listen_offer",
+            on_click=start_speaking,
+            args=(words,),
+            type="primary",
+            width="stretch",
+        )
+        show_voice(words)
+
         show_gauge(tier)
         show_badges(result)
         # A worst-year number would be misleading on a possible scam.
@@ -1296,11 +1603,12 @@ def show_offer_card(answer, is_demo):
 
 
 def show_check_offer():
-    """The Check an offer view: a text box, sample offers, a button, and the result."""
+    """The Check an offer view: a text box, a recorder, sample offers, a button, and the result."""
     st.warning(PRIVACY_LINE, icon="🛡️")
     st.markdown(
-        "Paste the words from a letter, brochure, email or ad. "
-        "Or pick one of our made-up sample offers."
+        "Paste the words from a letter, brochure, email or ad, "
+        "tell us out loud what the salesperson said, "
+        "or pick one of our made-up sample offers."
     )
 
     # The sample dropdown fills the big text box.
@@ -1330,6 +1638,9 @@ def show_check_offer():
     st.text_area(OFFER_BOX_LABEL, key="offer_text", height=320, max_chars=OFFER_MAX_CHARS)
     st.session_state["saved_offer_text"] = st.session_state["offer_text"]
 
+    # Or say it out loud (the box is only filled after "Yes, use this").
+    show_voice_input()
+
     clicked = st.button(CHECK_BUTTON, key="check_offer", type="primary", width="stretch")
 
     text = st.session_state["offer_text"].strip()
@@ -1338,7 +1649,7 @@ def show_check_offer():
     cache = st.session_state.setdefault("offer_cache", {})
 
     if clicked and not text:
-        st.warning("Please paste an offer or pick a sample first.", icon="✋")
+        st.warning("Please paste an offer, tell us about it, or pick a sample first.", icon="✋")
     elif clicked and text not in cache:
         demo_answer = find_demo_answer(text, samples, demo_answers)
         if demo_answer is not None:
