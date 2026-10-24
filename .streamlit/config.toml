@@ -1,0 +1,17 @@
+# Streamlit settings for Second Look.
+# This file holds no keys or passwords, so it is safe to share on GitHub.
+
+[theme]
+base = "light"
+primaryColor = "#0B4FD6"             # the one strong blue, used for buttons
+backgroundColor = "#FFFFFF"          # white page
+secondaryBackgroundColor = "#EEF3FD" # very light blue behind input boxes
+textColor = "#111111"                # near-black text
+font = "sans serif"
+
+[client]
+toolbarMode = "minimal"              # fewer Streamlit controls on screen
+showSidebarNavigation = false        # never show a sidebar menu
+
+[browser]
+gatherUsageStats = false             # don't send usage stats to Streamlit
