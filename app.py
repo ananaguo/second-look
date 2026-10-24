@@ -7,6 +7,16 @@ import os
 
 import streamlit as st
 
+from checks import (
+    FOUND_TAG,
+    GOV_CLAIM_WARNING,
+    NOT_FOUND_TAG,
+    SAFE_SENTENCE,
+    apply_guards,
+    find_product_by_name,
+    quote_check_counts,
+    verify_quotes,
+)
 from claude_helper import read_offer
 from products import PRODUCTS, TIERS
 from scoring import (
@@ -140,6 +150,13 @@ OFFER_CLOSING_LINE = (
     "talk it over with someone you trust."
 )
 
+# Tags next to each quote: always an icon AND words (the words come from checks.py)
+FOUND_LINE = f"✅ {FOUND_TAG}"
+NOT_FOUND_LINE = f"❓ {NOT_FOUND_TAG}"
+UNSURE_FLAGS_LINE = (
+    "We also looked for these, but couldn't find the exact words, so we don't count them:"
+)
+
 # Demo mode words (always an icon AND words)
 DEMO_NOTICE = (
     "📼 **Demo mode is on.** The six sample offers use saved readings, "
@@ -148,6 +165,36 @@ DEMO_NOTICE = (
 DEMO_CARD_LINE = (
     "📼 **Demo mode:** this is a saved, hand-written reading of a sample offer, "
     "not a live check by Claude. The label still comes from our own rules."
+)
+
+# ---------- Safety cards (shown on Check an offer, Explore products and Compare) ----------
+
+HELP_CARD_TITLE = "☎️ Before a big decision"
+HELP_CARD_TEXT = (
+    "Before a big decision, like moving savings or buying an annuity, talk with a licensed advisor. "
+    "A fee-only fiduciary advisor is paid by you, not by sales commissions.\n\n"
+    "Check anyone who sells investments on **FINRA BrokerCheck**: "
+    "[brokercheck.finra.org](https://brokercheck.finra.org) or **800-289-9999**.\n\n"
+    "Questions or worries about a brokerage account: **FINRA Securities Helpline for Seniors**, "
+    "**844-574-3577** (weekdays, 9 a.m. to 5 p.m. Eastern).\n\n"
+    "Annuities and insurance in California: **Department of Insurance**, **1-800-927-4357**."
+)
+
+SCAM_CARD_TITLE = "🚩 How to spot a scam"
+SCAM_TOP_TITLE = "🚩 This offer shows warning signs"
+SCAM_CARD_TEXT = (
+    "Real investments never promise high returns with no risk. "
+    "An honest seller won't pressure you to decide today, ask you to keep it secret, "
+    "or ask you to pay by gift card, wire transfer or crypto.\n\n"
+    "You can always take the papers home and ask someone you trust.\n\n"
+    "In California, older buyers generally get 30 days to review an annuity and return it; "
+    "check your contract."
+)
+
+WRONG_BUTTON = "🤔 Something looks wrong?"
+WRONG_TEXT = (
+    "Trust the official papers over this app. Ask the seller for the contract or prospectus, "
+    "and go over the numbers with a licensed advisor or one of the helplines above."
 )
 
 # ---------- Look and feel: large text, high contrast, big buttons ----------
@@ -209,13 +256,17 @@ html { font-size: 22px; }
     margin: 1.5rem 0;
 }
 
-/* Cards (products, questions, summary, offer): a thick dark border, lots of room */
+/* Cards (products, questions, summary, offer, help, scam): a thick dark border, lots of room */
 .stApp [class*="st-key-card_"] {
     border: 3px solid #111111;
     border-radius: 14px;
     padding: 28px 24px;
     margin-bottom: 2rem;
     background-color: #FFFFFF;
+}
+/* The scam card: an extra-thick border, so it stands out without relying on color */
+.stApp [class*="st-key-card_scam"] {
+    border-width: 6px;
 }
 
 /* Boxes inside a card ("Worth thinking about", "Warning signs") */
@@ -473,6 +524,53 @@ def show_start_over():
     # Confirm that it worked, then forget the flag
     if st.session_state.pop("just_cleared", False):
         st.success("Done. Everything you entered has been cleared.", icon="✅")
+
+
+# ---------- Safety cards: help, scam, and "Something looks wrong?" ----------
+
+def show_help_card():
+    """Where to get a trusted second opinion."""
+    with st.container(key="card_help"):
+        st.markdown(f"### {HELP_CARD_TITLE}")
+        st.markdown(HELP_CARD_TEXT)
+
+
+def show_scam_card(key, found_count=0):
+    """The scam warning card.
+    found_count > 0 means it sits above an offer that showed warning signs."""
+    with st.container(key=key):
+        if found_count > 0:
+            signs = "sign" if found_count == 1 else "signs"
+            st.markdown(f"### {SCAM_TOP_TITLE}")
+            st.markdown(
+                f"**We found {found_count} warning {signs} in this offer.** "
+                f"They are listed under **{FLAGS_TITLE}** below."
+            )
+        else:
+            st.markdown(f"### {SCAM_CARD_TITLE}")
+        st.markdown(SCAM_CARD_TEXT)
+
+
+def toggle_wrong_text():
+    """Runs when "Something looks wrong?" is clicked: show or hide its text."""
+    st.session_state["show_wrong_text"] = not st.session_state.get("show_wrong_text", False)
+
+
+def show_wrong_button():
+    """The "Something looks wrong?" button. It sits under the help card,
+    because its text points to "the helplines above"."""
+    st.button(WRONG_BUTTON, key="something_wrong", on_click=toggle_wrong_text, width="stretch")
+    if st.session_state.get("show_wrong_text"):
+        st.info(WRONG_TEXT, icon="📄")
+
+
+def show_safety_cards(include_scam=True):
+    """The cards at the bottom of Check an offer, Explore products and Compare."""
+    st.divider()
+    if include_scam:
+        show_scam_card("card_scam")
+    show_help_card()
+    show_wrong_button()
 
 
 # ---------- Your situation: questions and summary ----------
@@ -798,6 +896,17 @@ def show_explore():
             show_numbers(product, result)
             show_card_actions(product)
 
+    # The scam card, the help card and "Something looks wrong?"
+    show_safety_cards()
+
+
+# ---------- Compare (still being built) ----------
+
+def show_compare():
+    """The Compare view. Not built yet, but the safety cards are already here."""
+    show_coming_soon()
+    show_safety_cards()
+
 
 # ---------- Check an offer: reading the sample files ----------
 
@@ -849,6 +958,7 @@ def load_sample(samples):
 
 # ---------- Check an offer: reading Claude's answer safely ----------
 # The prompt tells Claude to write "unknown" whenever the offer doesn't say something.
+# checks.py has already checked every quote before these helpers see the answer.
 
 def get_part(answer, key):
     """One part of Claude's answer, as a dictionary. Empty if it is missing."""
@@ -901,22 +1011,11 @@ def access_word(part):
 
 # ---------- Check an offer: building the offer's facts ----------
 
-def find_product_by_name(category):
-    """The product in products.py whose name matches Claude's category.
-    None if none match (including when Claude says "unknown")."""
-    if not isinstance(category, str):
-        return None
-    wanted = category.strip().lower()
-    for product in PRODUCTS:
-        if product["name"].lower() == wanted:
-            return product
-    return None
-
-
 def build_offer_facts(answer):
     """Build the facts that scoring.py needs for this offer.
     Government backing, worst year and protections come ONLY from products.py.
-    Access and costs come from the offer when Claude quoted it, otherwise from products.py.
+    Access and costs come from the offer when a checked quote backs them up,
+    otherwise from products.py.
     Returns (facts, matching product or None, list of where each fact came from)."""
     product = find_product_by_name(answer.get("category"))
     where_from = []
@@ -945,7 +1044,7 @@ def build_offer_facts(answer):
             "because the offer didn't match a product on our list."
         )
 
-    # 2. Getting money out: use the offer's words if Claude quoted them.
+    # 2. Getting money out: use the offer's words if the quote was found.
     access = get_part(answer, "access")
     if is_quoted(access) and access_word(access) in ACCESS_BADGES:
         facts["access"] = access_word(access)
@@ -955,7 +1054,7 @@ def build_offer_facts(answer):
     else:
         where_from.append("Getting money out: not known.")
 
-    # 3. Costs: use the offer's words if Claude quoted them.
+    # 3. Costs: use the offer's words if the quote was found.
     costs = get_part(answer, "yearly_costs")
     if is_quoted(costs):
         yearly = as_number(costs.get("value_pct"))
@@ -988,6 +1087,19 @@ def quote_md(text):
     one_line = " ".join(str(text).split())
     clean = safe_text(one_line).replace("*", "\\*").replace("_", "\\_")
     return f"*“{clean}”*"
+
+
+def check_line(part):
+    """The quote and its tag, ready to show under a fact or a red flag."""
+    check = part.get("check")
+    if check == FOUND_TAG and is_quoted(part):
+        return f"{quote_md(part['quote'])}  \n{FOUND_LINE}"
+    if check == NOT_FOUND_TAG:
+        line = NOT_FOUND_LINE
+        if part.get("unverified_quote"):
+            line += f": {quote_md(part['unverified_quote'])}"
+        return line
+    return NOT_STATED_QUOTE
 
 
 def yes_no(value):
@@ -1026,16 +1138,16 @@ def promised_words(promised):
 
 
 def show_fact(title, words, part):
-    """One fact: its title, its value, and the offer's own words in italics."""
-    quote = quote_md(part["quote"]) if is_quoted(part) else NOT_STATED_QUOTE
-    st.markdown(f"**{title}:** {safe_text(words)}\n\n{quote}")
+    """One fact: its title, its value, the offer's own words, and the check tag."""
+    st.markdown(f"**{title}:** {safe_text(words)}\n\n{check_line(part)}")
 
 
 def show_offer_facts(answer):
     """What the offer says about each fact, with its quote."""
     st.markdown("#### 🔍 What the offer says")
     st.markdown(
-        "These are the offer's own claims. The words in italics are quoted from it. "
+        "These are the offer's own claims. The words in italics are quoted from it, "
+        "and we checked that each quote is really there. "
         "The label above comes from our rules, not from these claims."
     )
 
@@ -1053,26 +1165,37 @@ def show_offer_facts(answer):
     show_fact("Promised return", promised_words(promised), promised)
 
 
+def flag_line(item):
+    """One red flag as a list line: the flag, its quote, and the check tag."""
+    return f"- **{safe_text(item['flag'])}**  \n  {check_line(item)}"
+
+
 def show_red_flags(answer):
-    """The 'Warning signs we noticed' box."""
+    """The 'Warning signs we noticed' box.
+    Only flags whose words were found in the offer count as warning signs."""
     flags = answer.get("red_flags")
     if not isinstance(flags, list):
         flags = []
 
+    found = []
+    unsure = []
+    for item in flags:
+        if not isinstance(item, dict) or not item.get("flag"):
+            continue
+        if item.get("check") == FOUND_TAG:
+            found.append(item)
+        else:
+            unsure.append(item)
+
     with st.container(key="notes_red_flags"):
         st.markdown(f"#### {FLAGS_TITLE}")
-        lines = []
-        for item in flags:
-            if not isinstance(item, dict) or not item.get("flag"):
-                continue
-            line = f"- **{safe_text(item['flag'])}**"
-            if is_quoted(item):
-                line += f"  \n  {quote_md(item['quote'])}"
-            lines.append(line)
-        if lines:
-            st.markdown("\n".join(lines))
+        if found:
+            st.markdown("\n".join(flag_line(item) for item in found))
         else:
             st.markdown(NO_FLAGS_LINE)
+        if unsure:
+            st.markdown(UNSURE_FLAGS_LINE)
+            st.markdown("\n".join(flag_line(item) for item in unsure))
 
 
 def show_questions_to_ask(answer):
@@ -1086,14 +1209,15 @@ def show_questions_to_ask(answer):
 
 
 def show_plain_summary(answer):
-    """The plain-language summary of the offer."""
+    """The plain-language summary of the offer (already cleaned by checks.py)."""
     summary = answer.get("plain_summary")
     if isinstance(summary, str) and summary.strip():
         st.markdown(f"#### 📝 In plain words\n\n{safe_text(summary)}")
 
 
-def show_offer_numbers(result, where_from):
-    """'Show me the numbers' for the offer: the steps and where each fact came from."""
+def show_offer_numbers(result, where_from, answer):
+    """'Show me the numbers' for the offer: the steps, where each fact came from,
+    and what the safety checks did."""
     with st.expander("Show me the numbers", icon="🔢"):
         step_lines = ["**How we picked the label:**", ""]
         for step in result["steps"]:
@@ -1105,6 +1229,27 @@ def show_offer_numbers(result, where_from):
             source_lines.append(f"- {safe_text(item)}")
         st.markdown("\n".join(source_lines))
 
+        # What checks.py did to this reading
+        guards = answer.get("guards", {})
+        found, not_found = quote_check_counts(answer)
+        safety_lines = [
+            "**Safety checks:**",
+            "",
+            f"- Quotes we found in the offer: {found}.",
+            f"- Quotes we couldn't find, so we treat them as unknown: {not_found}.",
+        ]
+        if guards.get("not_rated"):
+            safety_lines.append(
+                "- The offer didn't match a product on our list, so it can't get a normal label."
+            )
+        if guards.get("gov_claim_warning"):
+            safety_lines.append(f"- {GOV_CLAIM_WARNING}")
+        if guards.get("summary_changed"):
+            safety_lines.append(
+                f"- A summary sentence sounded like advice, so we replaced it with: “{SAFE_SENTENCE}”"
+            )
+        st.markdown("\n".join(safe_text(line) for line in safety_lines))
+
         st.markdown(
             "The label never comes from the offer's own claims. "
             "Government backing, the worst year and protections always come from our product list."
@@ -1113,6 +1258,7 @@ def show_offer_numbers(result, where_from):
 
 def show_offer_card(answer, is_demo):
     """The 'Your offer' card, built like the Explore cards.
+    answer has already been through verify_quotes and apply_guards.
     is_demo is True when the reading is a saved one, not a live Claude check."""
     facts, product, where_from = build_offer_facts(answer)
 
@@ -1146,7 +1292,7 @@ def show_offer_card(answer, is_demo):
         show_questions_to_ask(answer)
         show_plain_summary(answer)
         st.markdown(f"💬 {OFFER_CLOSING_LINE}")
-        show_offer_numbers(result, where_from)
+        show_offer_numbers(result, where_from, answer)
 
 
 def show_check_offer():
@@ -1209,9 +1355,25 @@ def show_check_offer():
                 cache[text] = {"answer": answer, "is_demo": False}
 
     # Show the card whenever we already have a reading for this exact text.
+    scam_shown = False
     if text and text in cache:
         entry = cache[text]
-        show_offer_card(entry["answer"], entry["is_demo"])
+        # The safety layer runs on EVERY reading, saved or live, before scoring:
+        # 1. check each quote against the pasted text, 2. apply the guards.
+        checked = verify_quotes(text, entry["answer"])
+        guarded = apply_guards(checked)
+        guards = guarded["guards"]
+
+        # Any warning sign found: the scam card goes ABOVE the result.
+        if guards["show_scam_card"]:
+            show_scam_card("card_scam_top", found_count=guards["red_flag_count"])
+            scam_shown = True
+
+        show_offer_card(guarded, entry["is_demo"])
+
+    # At the bottom: the scam card (unless it's already above), the help card,
+    # and "Something looks wrong?"
+    show_safety_cards(include_scam=not scam_shown)
 
 
 # ---------- Build the page, top to bottom ----------
@@ -1232,6 +1394,8 @@ elif st.session_state["view"] == "Your situation":
     show_situation()
 elif st.session_state["view"] == "Explore products":
     show_explore()
+elif st.session_state["view"] == "Compare":
+    show_compare()
 elif st.session_state["view"] == "Check an offer":
     show_check_offer()
 else:
