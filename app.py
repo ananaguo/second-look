@@ -2,10 +2,14 @@
 # The screens of Second Look.
 # Run it with:  streamlit run app.py
 
+import os
+
 import streamlit as st
 
+from claude_helper import read_offer
 from products import PRODUCTS, TIERS
 from scoring import (
+    ACCESS_BADGES,
     DROP_SELL,
     GOAL_SAFE,
     NEED_1_TO_5_YEARS,
@@ -104,6 +108,28 @@ BIG_LOSS_LINE = "Could lose most or all."
 # The amount used in every "worst year" example
 EXAMPLE_AMOUNT = 10000
 
+# ---------- Check an offer: settings and words ----------
+
+# Where the made-up sample offers live
+SAMPLE_OFFERS_FILE = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "data", "sample_offers.md"
+)
+
+# The longest offer someone can paste (keeps Claude calls small)
+OFFER_MAX_CHARS = 6000
+
+OFFER_BOX_LABEL = "Paste what the salesperson or brochure said"
+SAMPLE_LABEL = "Use a sample offer"
+CHECK_BUTTON = "🔎 Check this offer"
+SPINNER_TEXT = "Reading the offer…"
+FLAGS_TITLE = "⚠️ Warning signs we noticed"
+NO_FLAGS_LINE = "We didn't notice any warning signs in this text. That alone doesn't make it safe."
+NOT_STATED_QUOTE = "*The offer doesn't say.*"
+OFFER_CLOSING_LINE = (
+    "This is a first look, not advice. Before you sign anything, "
+    "talk it over with someone you trust."
+)
+
 # ---------- Look and feel: large text, high contrast, big buttons ----------
 CSS = """
 <style>
@@ -163,7 +189,7 @@ html { font-size: 22px; }
     margin: 1.5rem 0;
 }
 
-/* Cards (products, questions, summary): a thick dark border, lots of room */
+/* Cards (products, questions, summary, offer): a thick dark border, lots of room */
 .stApp [class*="st-key-card_"] {
     border: 3px solid #111111;
     border-radius: 14px;
@@ -172,7 +198,7 @@ html { font-size: 22px; }
     background-color: #FFFFFF;
 }
 
-/* The "Worth thinking about" box inside a product card */
+/* Boxes inside a card ("Worth thinking about", "Warning signs") */
 .stApp [class*="st-key-notes_"] {
     border: 2px dashed #111111;
     border-radius: 10px;
@@ -228,6 +254,33 @@ html { font-size: 22px; }
 .stApp [data-testid="stRadio"] [role="radiogroup"] label:has(input:focus-visible) {
     outline: 4px solid #111111;
     outline-offset: 3px;
+}
+
+/* Check an offer: big labels on the text box and the dropdown */
+.stApp [data-testid="stTextArea"] [data-testid="stWidgetLabel"] p,
+.stApp [data-testid="stSelectbox"] [data-testid="stWidgetLabel"] p {
+    font-size: 28px !important;
+    font-weight: 700;
+    line-height: 1.3;
+}
+/* The big text box: large dark text and a thick border */
+.stApp textarea {
+    font-size: 22px !important;
+    line-height: 1.5 !important;
+    color: #111111 !important;
+    border: 2px solid #111111 !important;
+}
+/* The dropdown: tall and easy to click */
+.stApp [data-testid="stSelectbox"] [data-baseweb="select"] > div {
+    min-height: 60px;
+    border: 2px solid #111111;
+    font-size: 22px;
+}
+/* The small "Press Ctrl+Enter" and letter-count text: dark, not gray */
+.stApp [data-testid="InputInstructions"],
+.stApp [data-testid="InputInstructions"] * {
+    color: #111111 !important;
+    font-size: 18px !important;
 }
 
 /* "Show me the numbers": big title and a clear border */
@@ -726,6 +779,382 @@ def show_explore():
             show_card_actions(product)
 
 
+# ---------- Check an offer: reading the sample file ----------
+
+def load_sample_offers():
+    """Read OFFER 1 to 6 from data/sample_offers.md.
+    Returns a dictionary like {"OFFER 1": "the offer's text", ...}.
+    Returns an empty dictionary if the file is missing."""
+    samples = {}
+    try:
+        with open(SAMPLE_OFFERS_FILE, encoding="utf-8") as file:
+            text = file.read()
+    except OSError:
+        return samples
+
+    # Each offer starts with a heading like "## OFFER 1".
+    for part in text.split("## OFFER ")[1:]:
+        number, _, body = part.partition("\n")
+        samples[f"OFFER {number.strip()}"] = body.strip()
+    return samples
+
+
+def load_sample(samples):
+    """Runs when a sample is picked: put its text in the big box."""
+    choice = st.session_state.get("sample_choice")
+    if choice in samples:
+        st.session_state["offer_text"] = samples[choice]
+
+
+# ---------- Check an offer: reading Claude's answer safely ----------
+# The prompt tells Claude to write "unknown" whenever the offer doesn't say something.
+
+def get_part(answer, key):
+    """One part of Claude's answer, as a dictionary. Empty if it is missing."""
+    part = answer.get(key)
+    return part if isinstance(part, dict) else {}
+
+
+def is_quoted(part):
+    """True if Claude gave a real quote from the offer.
+    An empty quote or "unknown" does not count."""
+    if not isinstance(part, dict):
+        return False
+    quote = part.get("quote")
+    return isinstance(quote, str) and quote.strip().lower() not in ("", "unknown")
+
+
+def as_number(value):
+    """A number from Claude's answer, like 1.3 or "1.3%".
+    None if it isn't a number (for example "unknown")."""
+    if isinstance(value, bool):  # True and False are not numbers here
+        return None
+    if isinstance(value, (int, float)):
+        return value
+    if isinstance(value, str):
+        try:
+            return float(value.strip().rstrip("%").strip())
+        except ValueError:
+            return None
+    return None
+
+
+def yes_no_unknown(value):
+    """Turn "yes" / "no" / "unknown" (or true / false) into True, False or None."""
+    if value is True or value is False:
+        return value
+    if isinstance(value, str):
+        word = value.strip().lower()
+        if word == "yes":
+            return True
+        if word == "no":
+            return False
+    return None
+
+
+def access_word(part):
+    """Claude's access value in lowercase, like "locked_years". Empty if missing."""
+    value = part.get("value")
+    return value.strip().lower() if isinstance(value, str) else ""
+
+
+# ---------- Check an offer: building the offer's facts ----------
+
+def find_product_by_name(category):
+    """The product in products.py whose name matches Claude's category.
+    None if none match (including when Claude says "unknown")."""
+    if not isinstance(category, str):
+        return None
+    wanted = category.strip().lower()
+    for product in PRODUCTS:
+        if product["name"].lower() == wanted:
+            return product
+    return None
+
+
+def build_offer_facts(answer):
+    """Build the facts that scoring.py needs for this offer.
+    Government backing, worst year and protections come ONLY from products.py.
+    Access and costs come from the offer when Claude quoted it, otherwise from products.py.
+    Returns (facts, matching product or None, list of where each fact came from)."""
+    product = find_product_by_name(answer.get("category"))
+    where_from = []
+
+    # Start with "not known" for everything.
+    facts = {
+        "government_backed": None,
+        "worst_year_loss_pct": None,
+        "worst_year": "not known",
+        "protections": None,
+        "access": "unknown",
+        "yearly_cost_pct": None,
+        "sales_or_surrender_charge": False,
+    }
+
+    # 1. Copy the facts from the matching product.
+    if product is not None:
+        for key in facts:
+            facts[key] = product[key]
+        where_from.append(
+            f"Government backing, worst year and protections: our product list ({product['name']})."
+        )
+    else:
+        where_from.append(
+            "Government backing, worst year and protections: not known, "
+            "because the offer didn't match a product on our list."
+        )
+
+    # 2. Getting money out: use the offer's words if Claude quoted them.
+    access = get_part(answer, "access")
+    if is_quoted(access) and access_word(access) in ACCESS_BADGES:
+        facts["access"] = access_word(access)
+        where_from.append("Getting money out: the offer's own words.")
+    elif product is not None:
+        where_from.append("Getting money out: our product list.")
+    else:
+        where_from.append("Getting money out: not known.")
+
+    # 3. Costs: use the offer's words if Claude quoted them.
+    costs = get_part(answer, "yearly_costs")
+    if is_quoted(costs):
+        yearly = as_number(costs.get("value_pct"))
+        if yearly is not None:
+            facts["yearly_cost_pct"] = yearly
+        surrender = yes_no_unknown(costs.get("has_surrender_or_sales_charge"))
+        if surrender is not None:
+            facts["sales_or_surrender_charge"] = surrender
+        where_from.append("Costs: the offer's own words.")
+    elif product is not None:
+        where_from.append("Costs: our product list.")
+    else:
+        where_from.append("Costs: not known.")
+
+    # 4. Promised return (used for the too-good-to-be-true check).
+    promised = get_part(answer, "promised_return")
+    if as_number(promised.get("value_pct")) is not None:
+        where_from.append("Promised return: the offer's own words.")
+    else:
+        where_from.append("Promised return: the offer didn't promise a number.")
+
+    return facts, product, where_from
+
+
+# ---------- Check an offer: showing the result card ----------
+
+def quote_md(text):
+    """Show a quote from the offer in italics, safely.
+    Escapes $, * and _ so they show as plain characters."""
+    one_line = " ".join(str(text).split())
+    clean = safe_text(one_line).replace("*", "\\*").replace("_", "\\_")
+    return f"*“{clean}”*"
+
+
+def yes_no(value):
+    """A yes / no / unknown answer as a word for the screen."""
+    answer = yes_no_unknown(value)
+    if answer is True:
+        return "Yes"
+    if answer is False:
+        return "No"
+    return "Not stated"
+
+
+def costs_words(costs):
+    """Claude's cost facts as one plain line."""
+    parts = []
+    yearly = as_number(costs.get("value_pct"))
+    if yearly is not None:
+        parts.append(f"{yearly:g}% a year")
+    surrender = yes_no_unknown(costs.get("has_surrender_or_sales_charge"))
+    if surrender is True:
+        parts.append("has a surrender or sales charge")
+    elif surrender is False:
+        parts.append("no surrender or sales charge mentioned")
+    return ", ".join(parts) if parts else "Not stated"
+
+
+def promised_words(promised):
+    """Claude's promised-return facts as one plain line."""
+    value = as_number(promised.get("value_pct"))
+    if value is None:
+        return "No number promised"
+    words = f"{value:g}% a year"
+    if yes_no_unknown(promised.get("guaranteed")) is True:
+        words += ", called guaranteed"
+    return words
+
+
+def show_fact(title, words, part):
+    """One fact: its title, its value, and the offer's own words in italics."""
+    quote = quote_md(part["quote"]) if is_quoted(part) else NOT_STATED_QUOTE
+    st.markdown(f"**{title}:** {safe_text(words)}\n\n{quote}")
+
+
+def show_offer_facts(answer):
+    """What the offer says about each fact, with its quote."""
+    st.markdown("#### 🔍 What the offer says")
+    st.markdown("The words in italics are quoted from the offer.")
+
+    backed = get_part(answer, "government_backed")
+    loss = get_part(answer, "loss_possible")
+    access = get_part(answer, "access")
+    costs = get_part(answer, "yearly_costs")
+    promised = get_part(answer, "promised_return")
+
+    show_fact("Backed by the U.S. government?", yes_no(backed.get("value")), backed)
+    show_fact("Could you lose money?", yes_no(loss.get("value")), loss)
+    show_fact("Getting money out", ACCESS_BADGES.get(access_word(access), "Not stated"), access)
+    show_fact("Yearly costs", costs_words(costs), costs)
+    show_fact("Promised return", promised_words(promised), promised)
+
+
+def show_red_flags(answer):
+    """The 'Warning signs we noticed' box."""
+    flags = answer.get("red_flags")
+    if not isinstance(flags, list):
+        flags = []
+
+    with st.container(key="notes_red_flags"):
+        st.markdown(f"#### {FLAGS_TITLE}")
+        lines = []
+        for item in flags:
+            if not isinstance(item, dict) or not item.get("flag"):
+                continue
+            line = f"- **{safe_text(item['flag'])}**"
+            if is_quoted(item):
+                line += f"  \n  {quote_md(item['quote'])}"
+            lines.append(line)
+        if lines:
+            st.markdown("\n".join(lines))
+        else:
+            st.markdown(NO_FLAGS_LINE)
+
+
+def show_questions_to_ask(answer):
+    """The questions to ask before signing, as a numbered list."""
+    questions = answer.get("questions_to_ask")
+    if not isinstance(questions, list) or not questions:
+        return
+    st.markdown("#### 🙋 Questions to ask")
+    lines = [f"{number}. {safe_text(q)}" for number, q in enumerate(questions, start=1)]
+    st.markdown("\n".join(lines))
+
+
+def show_plain_summary(answer):
+    """Claude's plain-language summary of the offer."""
+    summary = answer.get("plain_summary")
+    if isinstance(summary, str) and summary.strip():
+        st.markdown(f"#### 📝 In plain words\n\n{safe_text(summary)}")
+
+
+def show_offer_numbers(result, where_from):
+    """'Show me the numbers' for the offer: the steps and where each fact came from."""
+    with st.expander("Show me the numbers", icon="🔢"):
+        step_lines = ["**How we picked the label:**", ""]
+        for step in result["steps"]:
+            step_lines.append(f"- {safe_text(step)}")
+        st.markdown("\n".join(step_lines))
+
+        source_lines = ["**Where each fact came from:**", ""]
+        for item in where_from:
+            source_lines.append(f"- {safe_text(item)}")
+        st.markdown("\n".join(source_lines))
+
+        st.markdown(
+            "The label never comes from the offer's own claims. "
+            "Government backing, the worst year and protections always come from our product list."
+        )
+
+
+def show_offer_card(answer):
+    """The 'Your offer' card, built like the Explore cards."""
+    facts, product, where_from = build_offer_facts(answer)
+
+    # scoring.py picks the tier, using the promised return for the scam check.
+    promised = get_part(answer, "promised_return")
+    result = assign_tier(
+        facts,
+        promised_return_pct=as_number(promised.get("value_pct")),
+        guaranteed=yes_no_unknown(promised.get("guaranteed")) is True,
+    )
+    tier = result["tier"]
+
+    if product is not None:
+        compared_to = product["name"]
+    else:
+        compared_to = "none of the products on our list"
+
+    with st.container(key="card_offer"):
+        st.markdown("### 📄 Your offer")
+        st.markdown(f"**We compared this to:** {safe_text(compared_to)}")
+        show_tier_heading(tier)
+        show_gauge(tier)
+        show_badges(result)
+        # A worst-year number would be misleading on a possible scam.
+        if tier != "off_map":
+            show_worst_year(facts, result)
+        show_offer_facts(answer)
+        show_red_flags(answer)
+        show_questions_to_ask(answer)
+        show_plain_summary(answer)
+        st.markdown(f"💬 {OFFER_CLOSING_LINE}")
+        show_offer_numbers(result, where_from)
+
+
+def show_check_offer():
+    """The Check an offer view: a text box, sample offers, a button, and the result."""
+    st.warning(PRIVACY_LINE, icon="🛡️")
+    st.markdown(
+        "Paste the words from a letter, brochure, email or ad. "
+        "Or pick one of our made-up sample offers."
+    )
+
+    # The sample dropdown fills the big text box.
+    samples = load_sample_offers()
+    if samples:
+        st.selectbox(
+            SAMPLE_LABEL,
+            list(samples.keys()),
+            index=None,
+            placeholder="Choose OFFER 1 to 6",
+            key="sample_choice",
+            on_change=load_sample,
+            args=(samples,),
+        )
+    else:
+        st.markdown("📂 Sample offers not found. Check that data/sample_offers.md exists.")
+
+    # Streamlit forgets a text box when you visit another page,
+    # so we keep our own copy and put it back when you return.
+    if "offer_text" not in st.session_state:
+        st.session_state["offer_text"] = st.session_state.get("saved_offer_text", "")
+
+    st.text_area(OFFER_BOX_LABEL, key="offer_text", height=320, max_chars=OFFER_MAX_CHARS)
+    st.session_state["saved_offer_text"] = st.session_state["offer_text"]
+
+    clicked = st.button(CHECK_BUTTON, key="check_offer", type="primary", width="stretch")
+
+    text = st.session_state["offer_text"].strip()
+    # Answers we already have, by offer text, so Claude is never asked twice.
+    cache = st.session_state.setdefault("offer_cache", {})
+
+    if clicked:
+        if not text:
+            st.warning("Please paste an offer or pick a sample first.", icon="✋")
+        elif text not in cache:
+            with st.spinner(SPINNER_TEXT):
+                product_names = [product["name"] for product in PRODUCTS]
+                answer, error = read_offer(text, product_names)
+            if error:
+                st.error(error, icon="😕")
+            else:
+                cache[text] = answer
+
+    # Show the card whenever we already have an answer for this exact text.
+    if text and text in cache:
+        show_offer_card(cache[text])
+
+
 # ---------- Build the page, top to bottom ----------
 
 # Start on Welcome the first time (or if the saved view is unknown)
@@ -744,6 +1173,8 @@ elif st.session_state["view"] == "Your situation":
     show_situation()
 elif st.session_state["view"] == "Explore products":
     show_explore()
+elif st.session_state["view"] == "Check an offer":
+    show_check_offer()
 else:
     show_coming_soon()
 
