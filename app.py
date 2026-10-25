@@ -1,6 +1,6 @@
 # app.py
 # The screens of Second Look.
-# Run it with:  python -m streamlit run app.py
+# Run it with:  streamlit run app.py
 
 import html
 import json
@@ -63,10 +63,11 @@ DEMO_MODE = True
 # ---------- The five views, in the order their buttons appear ----------
 VIEWS = ["Welcome", "Your situation", "Explore products", "Compare", "Check an offer"]
 
-# The notice shown at the top of every view (and again in the footer)
+# The notice shown at the top of every view (and again in the footer).
+# One sentence, so it fits on one line on a wide screen.
 NOTICE = (
-    "Second Look explains money products in plain language. "
-    "It is educational, not professional financial advice."
+    "Second Look explains money products in plain language "
+    "and is educational, not professional financial advice."
 )
 
 # ---------- Your situation: the five questions ----------
@@ -176,31 +177,67 @@ SAMPLE_ANSWERS_FILE = os.path.join(DATA_FOLDER, "sample_answers.json")
 # The longest offer someone can paste (keeps Claude calls small)
 OFFER_MAX_CHARS = 6000
 
-OFFER_BOX_LABEL = "Paste what the salesperson or brochure said"
-SAMPLE_LABEL = "Use a sample offer"
+# Step 1: choose one of three ways
+STEP_ONE_TITLE = "Step 1 of 3: Choose how to give us the offer"
+STEP_ONE_TEXT = "Pick one way. You can switch to another way at any time."
+WAY_LABEL = "How would you like to give us the offer?"
+WAY_TYPE = "⌨️ Paste or type it"
+WAY_SAY = "🎙️ Say it out loud"
+WAY_SAMPLE = "📄 Try a made-up sample"
+WAYS = [WAY_TYPE, WAY_SAY, WAY_SAMPLE]
+OFFER_PRIVACY_LINE = (
+    "🛡️ **Keep it private:** don't type or say your name, account numbers, "
+    "or Social Security number. We never need them."
+)
+
+# Step 2: its title depends on the way chosen in step 1
+STEP_TWO_TITLES = {
+    WAY_TYPE: "Step 2 of 3: Paste or type the offer",
+    WAY_SAY: "Step 2 of 3: Tell us what was said",
+    WAY_SAMPLE: "Step 2 of 3: Pick a sample",
+}
+TYPE_HELP = (
+    "Copy the words from a letter, email or ad and paste them in the box, "
+    "or type what the salesperson said. Then press **🔎 Check this offer**."
+)
+OFFER_BOX_LABEL = "The offer's words"
+OFFER_BOX_PLACEHOLDER = "Paste or type what the salesperson, letter or ad said."
+SAMPLE_HELP = (
+    "These six offers are made up for practice. "
+    "Pick one, and its result appears right away in step 3."
+)
+SAMPLE_LABEL = "📄 Sample offer"
+SAMPLE_WORDS_LABEL = "Read this sample's words"
 CHECK_BUTTON = "🔎 Check this offer"
 SPINNER_TEXT = "Reading the offer…"
+EMPTY_WARNING = "Please put the offer's words in the box first."
+RESULT_READY_LINE = "⬇️ **Your result is ready** in step 3, just below."
+
+# Step 3: the result
+RESULT_TITLE = "Step 3 of 3: Your result"
+OFFER_WAITING_TEXT = (
+    "Your result will appear here after step 2: our label, "
+    "any warning signs, and questions to ask before you sign."
+)
+
+# The warning signs box in the result
 FLAGS_TITLE = "⚠️ Warning signs we noticed"
 NO_FLAGS_LINE = "We didn't notice any warning signs in this text. That alone doesn't make it safe."
+FLAGS_FOUND_LINE = (
+    "Honest investments don't do these things. The **🚩 How to spot a scam** card "
+    "at the bottom of this page says what to do next."
+)
 NOT_STATED_QUOTE = "*The offer doesn't say.*"
 OFFER_CLOSING_LINE = (
     "This is a first look, not advice. Before you sign anything, "
     "talk it over with someone you trust."
 )
 
-# The card shown where the result will go, before anything has been checked
-OFFER_WAITING_TITLE = "📄 Your result"
-OFFER_WAITING_TEXT = (
-    "Your result will appear here. Paste an offer, tell us about it, "
-    "or pick a sample, then click **🔎 Check this offer**."
-)
-
 # Voice input on Check an offer
-RECORD_LABEL = "Or tell us what the salesperson said"
+RECORD_LABEL = "🎙️ Your recording"
 RECORD_HELP_LINE = (
-    "🎙️ Press the microphone, say what you were told (or read the letter aloud), "
-    "then press stop. Don't say your name, account numbers, or Social Security number. "
-    "Your recording is sent to Cartesia, a voice service, to turn it into words."
+    "Press the microphone, say what you were told (or read the letter aloud), "
+    "then press stop. Your recording is sent to Cartesia, a voice service, to turn it into words."
 )
 LISTEN_SPINNER = "Listening to your recording…"
 HEARD_TITLE = "👂 I heard:"
@@ -208,8 +245,8 @@ HEARD_CHECK_LINE = "Is this right? Nothing goes in the box until you say yes."
 USE_HEARD_BUTTON = "✅ Yes, use this"
 TRY_AGAIN_BUTTON = "🔁 Try again"
 HEARD_USED_LINE = (
-    "Done. What you said is now in the box above. "
-    "Read it over, then click **🔎 Check this offer**."
+    "Done. Here is what you said. Fix any words that are wrong, "
+    "then press **🔎 Check this offer**."
 )
 
 # Tags next to each quote: always an icon AND words (the words come from checks.py)
@@ -244,7 +281,6 @@ HELP_CARD_TEXT = (
 )
 
 SCAM_CARD_TITLE = "🚩 How to spot a scam"
-SCAM_TOP_TITLE = "🚩 This offer shows warning signs"
 SCAM_CARD_TEXT = (
     "Real investments never promise high returns with no risk. "
     "An honest seller won't pressure you to decide today, ask you to keep it secret, "
@@ -503,19 +539,10 @@ def show_help_card():
         st.markdown(HELP_CARD_TEXT)
 
 
-def show_scam_card(key, found_count=0):
-    """The scam warning card.
-    found_count > 0 means it sits above an offer that showed warning signs."""
+def show_scam_card(key):
+    """The "How to spot a scam" card."""
     with st.container(key=key):
-        if found_count > 0:
-            signs = "sign" if found_count == 1 else "signs"
-            st.markdown(f"### {SCAM_TOP_TITLE}")
-            st.markdown(
-                f"**We found {found_count} warning {signs} in this offer.** "
-                f"They are listed under **{FLAGS_TITLE}** below."
-            )
-        else:
-            st.markdown(f"### {SCAM_CARD_TITLE}")
+        st.markdown(f"### {SCAM_CARD_TITLE}")
         st.markdown(SCAM_CARD_TEXT)
 
 
@@ -532,13 +559,15 @@ def show_wrong_button():
         st.info(WRONG_TEXT, icon="📄")
 
 
-def show_safety_cards(include_scam=True):
-    """The cards at the bottom of Check an offer, Explore products and Compare."""
+def show_safety_cards():
+    """The cards at the bottom of Check an offer, Explore products and Compare:
+    the scam card and the help card, side by side on wide screens."""
     st.divider()
-    if include_scam:
+    with st.container(key="split_safety"):
         show_scam_card("card_scam")
-    show_help_card()
-    show_wrong_button()
+        with st.container(key="safety_help"):
+            show_help_card()
+            show_wrong_button()
 
 
 # ---------- Your situation: questions and summary ----------
@@ -559,8 +588,14 @@ def missing_question_numbers():
 
 def show_questions():
     """The five questions, each in its own big card, and a Save button."""
-    st.warning(PRIVACY_LINE, icon="🛡️")
-    st.markdown("Pick one answer for each question. You can change them later.")
+    # The top of the page: what to do (left) and the privacy reminder (right).
+    with st.container(key="split_questions"):
+        with st.container(key="questions_intro"):
+            st.markdown(
+                "Pick one answer for each question. You can change them later.\n\n"
+                f"Your answers add short notes under **{NOTES_TITLE}** on each product card."
+            )
+        st.warning(PRIVACY_LINE, icon="🛡️")
 
     saved = st.session_state.get("answers") or {}
 
@@ -601,30 +636,33 @@ def show_questions():
 
 
 def show_answer_summary(answers):
-    """The "Here's what you told us" card, with an Edit button."""
-    with st.container(key="card_summary"):
-        st.markdown("### 📋 Here's what you told us")
-        lines = []
-        for question in QUESTIONS:
-            answer = answers.get(question["key"], "Not answered")
-            lines.append(f"**{safe_text(question['short'])}:** {safe_text(answer)}")
-        st.markdown("\n\n".join(lines))
-        st.button("✏️ Edit my answers", key="edit_answers", on_click=start_editing, width="stretch")
+    """The "Here's what you told us" card (left) and what happens next (right)."""
+    with st.container(key="split_summary"):
+        with st.container(key="card_summary"):
+            st.markdown("### 📋 Here's what you told us")
+            lines = []
+            for question in QUESTIONS:
+                answer = answers.get(question["key"], "Not answered")
+                lines.append(f"**{safe_text(question['short'])}:** {safe_text(answer)}")
+            st.markdown("\n\n".join(lines))
+            st.button("✏️ Edit my answers", key="edit_answers", on_click=start_editing, width="stretch")
 
-    st.markdown(
-        "🔒 Your answers stay on this page only, until you close it or click **Start over**."
-    )
-    st.markdown(
-        f"Your answers add short notes under **{NOTES_TITLE}** on each product card."
-    )
-    st.button(
-        "🧭 See the notes on Explore products",
-        key="goto_explore",
-        on_click=go_to,
-        args=("Explore products",),
-        type="primary",
-        width="stretch",
-    )
+        with st.container(key="card_next"):
+            st.markdown("### 🧭 What happens next")
+            st.markdown(
+                f"Your answers add short notes under **{NOTES_TITLE}** on each product card."
+            )
+            st.markdown(
+                "🔒 Your answers stay on this page only, until you close it or click **Start over**."
+            )
+            st.button(
+                "🧭 See the notes on Explore products",
+                key="goto_explore",
+                on_click=go_to,
+                args=("Explore products",),
+                type="primary",
+                width="stretch",
+            )
 
 
 def show_situation():
@@ -665,13 +703,11 @@ def draw_bar(filled, total):
 
 def gauge_line(title, bar, word, count):
     """One gauge line. The bar is hidden from screen readers,
-    because the word and the count already say the same thing.
-    The word and the count sit in one piece ("gauge-value"),
-    so "Small (1 of 4)" is never split across two lines."""
+    because the word and the count already say the same thing."""
     return (
         f'<p class="gauge"><strong>{title}:</strong> '
         f'<span class="gauge-bar" aria-hidden="true">{bar}</span> '
-        f'<span class="gauge-value"><strong>{word}</strong> ({count})</span></p>'
+        f"<strong>{word}</strong> ({count})</p>"
     )
 
 
@@ -853,28 +889,47 @@ def show_compare_box(product):
     st.checkbox("Compare", key=box_key, on_change=toggle_compare, args=(key,))
 
 
+def show_notes_prompt():
+    """Explore's side card: where the "Worth thinking about" notes come from."""
+    with st.container(key="card_notes_prompt"):
+        st.markdown(f"#### {NOTES_TITLE}")
+        if st.session_state.get("answers"):
+            st.markdown("Your answers are saved, so every card below shows short notes for you.")
+            st.button(
+                "📋 See my answers",
+                key="goto_situation",
+                on_click=go_to,
+                args=("Your situation",),
+                width="stretch",
+            )
+        else:
+            st.markdown(
+                "Answer the five questions on **Your situation** to see short notes "
+                "on each card below."
+            )
+            st.button(
+                "🧭 Go to Your situation",
+                key="goto_situation",
+                on_click=go_to,
+                args=("Your situation",),
+                type="primary",
+                width="stretch",
+            )
+
+
 def show_explore():
     """The Explore products view: one big card per product."""
-    st.markdown(
-        "Every product is listed here, from the calmest water (**⚓ Safe Harbor**) "
-        "to the wildest (**⚠️ Uncharted Waters**).\n\n"
-        "Press **🔊 Read aloud** on any card to hear it. "
-        "Open **Show me the numbers** to see the facts and sources behind its label."
-    )
-
-    # No answers yet: explain where the notes come from, with a button to get there.
-    if not st.session_state.get("answers"):
-        st.markdown(
-            f"💭 Answer the questions on **Your situation** to see short notes "
-            f"on each card under **{NOTES_TITLE}**."
-        )
-        st.button(
-            "🧭 Go to Your situation",
-            key="goto_situation",
-            on_click=go_to,
-            args=("Your situation",),
-            width="stretch",
-        )
+    # The top of the page: what this page shows (left) and the notes card (right).
+    with st.container(key="split_explore"):
+        with st.container(key="explore_intro"):
+            st.markdown(
+                "Every product is listed here, from the calmest water (**⚓ Safe Harbor**) "
+                "to the wildest (**⚠️ Uncharted Waters**).\n\n"
+                "Press **🔊 Read aloud** on any card to hear it. "
+                "Open **Show me the numbers** to see the facts and sources behind its label.\n\n"
+                "Tick **Compare** on any cards to see them side by side on the **Compare** page."
+            )
+        show_notes_prompt()
 
     # One card per product. styles.py lays them out in a grid:
     # three per row on wide screens, two on medium screens, one on phones.
@@ -1058,39 +1113,39 @@ def show_compare():
     # In label order, from Safe Harbor to Uncharted Waters.
     rows = [(product, result) for product, result in sorted_products() if product["key"] in chosen]
 
-    if not rows:
-        st.markdown(COMPARE_EMPTY)
-        st.button(
-            "🧭 Go to Explore products",
-            key="compare_go_explore",
-            on_click=go_to,
-            args=("Explore products",),
-            type="primary",
-            width="stretch",
-        )
-        show_safety_cards()
-        return
+    # The top of the page: what is being compared (left) and how to change it (right).
+    with st.container(key="split_compare"):
+        with st.container(key="compare_intro"):
+            if not rows:
+                st.markdown(COMPARE_EMPTY)
+            else:
+                count = len(rows)
+                things = "product" if count == 1 else "products"
+                st.markdown(
+                    f"Comparing **{count} {things}**, from the calmest water to the wildest.\n\n"
+                    f"{COMPARE_LABEL_NOTE}"
+                )
+                if count == 1:
+                    st.markdown(COMPARE_ONE_MORE)
+                else:
+                    st.markdown(COMPARE_SCROLL_HINT)
 
-    count = len(rows)
-    things = "product" if count == 1 else "products"
-    st.markdown(f"Comparing **{count} {things}**, from the calmest water to the wildest. {COMPARE_HOW}")
-    if count == 1:
-        st.markdown(COMPARE_ONE_MORE)
-    else:
-        st.markdown(COMPARE_SCROLL_HINT)
+        with st.container(key="card_compare_change"):
+            st.markdown("#### ➕ Choose what to compare")
+            st.markdown(COMPARE_HOW)
+            st.button(
+                "🧭 Go to Explore products",
+                key="compare_go_explore",
+                on_click=go_to,
+                args=("Explore products",),
+                type="primary",
+                width="stretch",
+            )
 
-    st.markdown(compare_table_html(rows), unsafe_allow_html=True)
-
-    if st.session_state.get("answers"):
-        st.markdown(NOTES_DISCLAIMER)
-    st.markdown(COMPARE_LABEL_NOTE)
-    st.button(
-        "🧭 Add or remove products on Explore products",
-        key="compare_go_explore",
-        on_click=go_to,
-        args=("Explore products",),
-        width="stretch",
-    )
+    if rows:
+        st.markdown(compare_table_html(rows), unsafe_allow_html=True)
+        if st.session_state.get("answers"):
+            st.markdown(NOTES_DISCLAIMER)
 
     # The scam card, the help card and "Something looks wrong?"
     show_safety_cards()
@@ -1137,17 +1192,42 @@ def find_demo_answer(text, samples, demo_answers):
     return None
 
 
+# ---------- Check an offer: the offer's words ----------
+# st.session_state["offer_words"] always holds the words we are working with,
+# whichever way they came in (typed, said out loud, or a sample).
+# It is our own copy, so it is never lost when the text box isn't on screen.
+
+def current_words():
+    """The offer's words we are working with (empty if none yet)."""
+    return st.session_state.get("offer_words", "")
+
+
+def set_words(text):
+    """Put new words in place of the old ones.
+    The text box starts over from these words the next time it is drawn."""
+    st.session_state["offer_words"] = (text or "")[:OFFER_MAX_CHARS]
+    st.session_state.pop("offer_box", None)
+
+
 def load_sample(samples):
-    """Runs when a sample is picked: put its text in the big box."""
+    """Runs when a sample is picked: use its words, and check them right away."""
     choice = st.session_state.get("sample_choice")
     if choice in samples:
-        st.session_state["offer_text"] = samples[choice]
+        set_words(samples[choice])
+        st.session_state["voice_ready"] = False
+        st.session_state["check_now"] = True
+
+
+def save_way():
+    """Runs when the way in step 1 is changed. We keep our own copy,
+    because Streamlit forgets a choice when you visit another page."""
+    st.session_state["offer_way_saved"] = st.session_state["offer_way"]
 
 
 # ---------- Check an offer: telling us out loud ----------
 # 1. The person records with st.audio_input.
 # 2. Cartesia turns the recording into words (once per recording).
-# 3. We show "I heard: …". Only "Yes, use this" puts the words in the box.
+# 3. We show "I heard: …". Only "Yes, use this" uses those words.
 
 def forget_recording():
     """Clear the recording and what we heard.
@@ -1155,27 +1235,22 @@ def forget_recording():
     st.session_state["recording_round"] = st.session_state.get("recording_round", 0) + 1
     for key in ("heard_for", "heard_text", "heard_error"):
         st.session_state.pop(key, None)
+    st.session_state["voice_ready"] = False
 
 
 def use_heard_text():
-    """Runs when "Yes, use this" is clicked: put what we heard in the offer box."""
-    heard = st.session_state.get("heard_text") or ""
-    st.session_state["offer_text"] = heard[:OFFER_MAX_CHARS]
-    st.session_state["saved_offer_text"] = st.session_state["offer_text"]
-    st.session_state["sample_choice"] = None  # it isn't a sample any more
-    st.session_state["heard_used"] = True     # a one-time "Done" message
+    """Runs when "Yes, use this" is clicked: use what we heard as the offer's words."""
+    set_words(st.session_state.get("heard_text") or "")
     forget_recording()
+    # After forget_recording, so it stays True: the words are ready to check.
+    st.session_state["voice_ready"] = True
 
 
 def show_voice_input():
-    """The recorder, and the "I heard: …" card with its two buttons."""
-    st.markdown(RECORD_HELP_LINE)
+    """The recorder, and the "I heard: …" box with its two buttons."""
     round_number = st.session_state.get("recording_round", 0)
     recording = st.audio_input(RECORD_LABEL, key=f"offer_audio_{round_number}")
-
-    # Just confirmed: say so, then forget the flag.
-    if st.session_state.pop("heard_used", False):
-        st.success(HEARD_USED_LINE, icon="✅")
+    st.markdown(RECORD_HELP_LINE)
 
     if recording is None:
         return
@@ -1191,13 +1266,14 @@ def show_voice_input():
     heard = st.session_state.get("heard_text")
     error = st.session_state.get("heard_error")
 
-    with st.container(key="card_heard"):
+    # A dashed box inside the card, so it looks different from the card around it.
+    with st.container(key="notes_heard"):
         if error:
             st.info(error, icon="🎙️")
             st.button(TRY_AGAIN_BUTTON, key="heard_try_again", on_click=forget_recording, width="stretch")
             return
 
-        st.markdown(f"### {HEARD_TITLE}")
+        st.markdown(f"#### {HEARD_TITLE}")
         st.markdown(quote_md(heard))
         st.markdown(HEARD_CHECK_LINE)
         left, right = st.columns(2, gap="medium")
@@ -1396,26 +1472,27 @@ def show_fact(title, words, part):
 
 
 def show_offer_facts(answer):
-    """What the offer says about each fact, with its quote."""
-    st.markdown("#### 🔍 What the offer says")
-    st.markdown(
-        "These are the offer's own claims. The words in italics are quoted from it, "
-        "and we checked that each quote is really there. "
-        "The label above comes from our rules, not from these claims."
-    )
+    """What the offer says about each fact, with its quote.
+    It sits in a box you open, because it is detail most people check last."""
+    with st.expander("What the offer says, word for word", icon="🔍"):
+        st.markdown(
+            "These are the offer's own claims. The words in italics are quoted from it, "
+            "and we checked that each quote is really there. "
+            "Our label comes from our rules, not from these claims."
+        )
 
-    backed = get_part(answer, "government_backed")
-    loss = get_part(answer, "loss_possible")
-    access = get_part(answer, "access")
-    costs = get_part(answer, "yearly_costs")
-    promised = get_part(answer, "promised_return")
+        backed = get_part(answer, "government_backed")
+        loss = get_part(answer, "loss_possible")
+        access = get_part(answer, "access")
+        costs = get_part(answer, "yearly_costs")
+        promised = get_part(answer, "promised_return")
 
-    # The titles say "Says…" so a claim is never mistaken for our own finding.
-    show_fact("Says it's backed by the U.S. government?", yes_no(backed.get("value")), backed)
-    show_fact("Says you could lose money?", yes_no(loss.get("value")), loss)
-    show_fact("Getting money out", ACCESS_BADGES.get(access_word(access), "Not stated"), access)
-    show_fact("Yearly costs", costs_words(costs), costs)
-    show_fact("Promised return", promised_words(promised), promised)
+        # The titles say "Says…" so a claim is never mistaken for our own finding.
+        show_fact("Says it's backed by the U.S. government?", yes_no(backed.get("value")), backed)
+        show_fact("Says you could lose money?", yes_no(loss.get("value")), loss)
+        show_fact("Getting money out", ACCESS_BADGES.get(access_word(access), "Not stated"), access)
+        show_fact("Yearly costs", costs_words(costs), costs)
+        show_fact("Promised return", promised_words(promised), promised)
 
 
 def flag_line(item):
@@ -1424,8 +1501,9 @@ def flag_line(item):
 
 
 def show_red_flags(answer):
-    """The 'Warning signs we noticed' box.
-    Only flags whose words were found in the offer count as warning signs."""
+    """The warning signs box. Only flags whose words were found in the offer count.
+    When we found some, the box gets a thick solid border (styles.py),
+    so it stands out by its shape, not just its words."""
     flags = answer.get("red_flags")
     if not isinstance(flags, list):
         flags = []
@@ -1440,11 +1518,16 @@ def show_red_flags(answer):
         else:
             unsure.append(item)
 
-    with st.container(key="notes_red_flags"):
-        st.markdown(f"#### {FLAGS_TITLE}")
+    key = "notes_flags_found" if found else "notes_flags_none"
+    with st.container(key=key):
         if found:
+            count = len(found)
+            signs = "sign" if count == 1 else "signs"
+            st.markdown(f"#### 🚩 We noticed {count} warning {signs}")
             st.markdown("\n".join(flag_line(item) for item in found))
+            st.markdown(FLAGS_FOUND_LINE)
         else:
+            st.markdown(f"#### {FLAGS_TITLE}")
             st.markdown(NO_FLAGS_LINE)
         if unsure:
             st.markdown(UNSURE_FLAGS_LINE)
@@ -1456,7 +1539,7 @@ def show_questions_to_ask(answer):
     questions = answer.get("questions_to_ask")
     if not isinstance(questions, list) or not questions:
         return
-    st.markdown("#### 🙋 Questions to ask")
+    st.markdown("#### 🙋 Questions to ask before you sign")
     lines = [f"{number}. {safe_text(q)}" for number, q in enumerate(questions, start=1)]
     st.markdown("\n".join(lines))
 
@@ -1510,7 +1593,9 @@ def show_offer_numbers(result, where_from, answer):
 
 
 def show_offer_card(answer, is_demo):
-    """The 'Your offer' card, built like the Explore cards.
+    """Step 3: the result card, in the order people need it:
+    our label, what the offer is in plain words, the warning signs,
+    how rough the water is, questions to ask, and then the details.
     answer has already been through verify_quotes and apply_guards.
     is_demo is True when the reading is a saved one, not a live Claude check."""
     facts, product, where_from = build_offer_facts(answer)
@@ -1530,11 +1615,14 @@ def show_offer_card(answer, is_demo):
         compared_to = "none of the products on our list"
 
     with st.container(key="card_offer"):
-        st.markdown("### 📄 Your offer")
+        st.markdown(f"### {RESULT_TITLE}")
         if is_demo:
             st.markdown(DEMO_CARD_LINE)
-        st.markdown(f"**We compared this to:** {safe_text(compared_to)}")
+
+        # 1. Our label (from scoring.py), and what we compared the offer to
+        st.markdown("**Our label for this offer:**")
         show_tier_heading(tier)
+        st.markdown(f"**We compared it to:** {safe_text(compared_to)}")
 
         # Listen to the result: near the top, so it is easy to find.
         words = offer_words(answer, result)
@@ -1548,130 +1636,191 @@ def show_offer_card(answer, is_demo):
         )
         show_voice(words)
 
+        # 2. What the offer is, in plain words
+        show_plain_summary(answer)
+
+        # 3. Warning signs, right where they can't be missed
+        show_red_flags(answer)
+
+        # 4. How rough the water is, getting money out, cost, and the worst year
         show_gauge(tier)
         show_badges(result)
         # A worst-year number would be misleading on a possible scam.
         if tier != "off_map":
             show_worst_year(facts, result)
-        show_offer_facts(answer)
-        show_red_flags(answer)
+
+        # 5. What to ask before signing
         show_questions_to_ask(answer)
-        show_plain_summary(answer)
         st.markdown(f"💬 {OFFER_CLOSING_LINE}")
+
+        # 6. The details, in two boxes you can open
+        show_offer_facts(answer)
         show_offer_numbers(result, where_from, answer)
 
 
-# ---------- Check an offer: the two columns ----------
+# ---------- Check an offer: the three steps, one under another ----------
 
-def show_offer_input(samples, demo_answers):
-    """The left column: the sample menu, the big text box, the microphone,
-    and the Check button. Clicking Check reads the offer here."""
-    # The sample dropdown fills the big text box.
-    if samples:
-        st.selectbox(
-            SAMPLE_LABEL,
-            list(samples.keys()),
-            index=None,
-            placeholder="Choose OFFER 1 to 6",
-            key="sample_choice",
-            on_change=load_sample,
-            args=(samples,),
-        )
-        if demo_answers:
-            st.markdown(DEMO_NOTICE)
-    else:
-        st.markdown("📂 Sample offers not found. Check that data/sample_offers.md exists.")
-
-    # Streamlit forgets a text box when you visit another page,
-    # so we keep our own copy and put it back when you return.
-    if "offer_text" not in st.session_state:
-        st.session_state["offer_text"] = st.session_state.get("saved_offer_text", "")
-
-    st.text_area(OFFER_BOX_LABEL, key="offer_text", height=320, max_chars=OFFER_MAX_CHARS)
-    st.session_state["saved_offer_text"] = st.session_state["offer_text"]
-
-    # Or say it out loud (the box is only filled after "Yes, use this").
-    show_voice_input()
-
-    clicked = st.button(CHECK_BUTTON, key="check_offer", type="primary", width="stretch")
-
-    text = st.session_state["offer_text"].strip()
+def check_words(samples, demo_answers):
+    """Read the offer's words: a saved reading for a sample in demo mode,
+    otherwise a live call to Claude. Problems show right here, next to the step."""
+    text = current_words().strip()
     # Readings we already have, by offer text, so Claude is never asked twice.
     # Each one is stored as {"answer": ..., "is_demo": True or False}.
     cache = st.session_state.setdefault("offer_cache", {})
 
-    if clicked and not text:
-        st.warning("Please paste an offer, tell us about it, or pick a sample first.", icon="✋")
-    elif clicked and text not in cache:
-        demo_answer = find_demo_answer(text, samples, demo_answers)
-        if demo_answer is not None:
-            # A sample offer in demo mode: use the saved reading, no Claude call.
-            cache[text] = {"answer": demo_answer, "is_demo": True}
-        else:
-            # Anything else: ask Claude.
-            with st.spinner(SPINNER_TEXT):
-                product_names = [product["name"] for product in PRODUCTS]
-                answer, error = read_offer(text, product_names)
-            if error:
-                st.error(error, icon="😕")
+    if not text:
+        st.warning(EMPTY_WARNING, icon="✋")
+        return
+    if text in cache:
+        return
+
+    demo_answer = find_demo_answer(text, samples, demo_answers)
+    if demo_answer is not None:
+        # A sample offer in demo mode: use the saved reading, no Claude call.
+        cache[text] = {"answer": demo_answer, "is_demo": True}
+        return
+
+    # Anything else: ask Claude.
+    with st.spinner(SPINNER_TEXT):
+        product_names = [product["name"] for product in PRODUCTS]
+        answer, error = read_offer(text, product_names)
+    if error:
+        st.error(error, icon="😕")
+    else:
+        cache[text] = {"answer": answer, "is_demo": False}
+
+
+def show_result_ready():
+    """A line saying the result is ready below, once these exact words are checked."""
+    text = current_words().strip()
+    if text and text in st.session_state.get("offer_cache", {}):
+        st.markdown(RESULT_READY_LINE)
+
+
+def show_words_box():
+    """The text box with the offer's words, ready to read over or change."""
+    # Start the box from our own copy of the words.
+    if "offer_box" not in st.session_state:
+        st.session_state["offer_box"] = current_words()
+    words = st.text_area(
+        OFFER_BOX_LABEL,
+        key="offer_box",
+        height=260,
+        max_chars=OFFER_MAX_CHARS,
+        placeholder=OFFER_BOX_PLACEHOLDER,
+    )
+    # Whatever is in the box now is the offer's words.
+    st.session_state["offer_words"] = words
+
+
+def show_check_button(samples, demo_answers):
+    """The big Check button, and what happened when it was pressed."""
+    if st.button(CHECK_BUTTON, key="check_offer", type="primary", width="stretch"):
+        check_words(samples, demo_answers)
+    show_result_ready()
+
+
+def show_way_step():
+    """Step 1: choose one of three ways. Returns the way chosen."""
+    # Put back the saved choice when coming back to this page.
+    if "offer_way" not in st.session_state:
+        st.session_state["offer_way"] = st.session_state.get("offer_way_saved", WAY_TYPE)
+
+    with st.container(key="card_offer_way"):
+        st.markdown(f"### {STEP_ONE_TITLE}")
+        st.markdown(STEP_ONE_TEXT)
+        # Three big boxes side by side (styles.py). The label is still there for
+        # screen readers; it is hidden on screen because the step title says it.
+        st.radio(
+            WAY_LABEL,
+            WAYS,
+            key="offer_way",
+            on_change=save_way,
+            horizontal=True,
+            label_visibility="collapsed",
+        )
+        st.markdown(OFFER_PRIVACY_LINE)
+    return st.session_state["offer_way"]
+
+
+def show_input_step(way, samples, demo_answers):
+    """Step 2: only the one way chosen in step 1."""
+    with st.container(key="card_offer_input"):
+        st.markdown(f"### {STEP_TWO_TITLES[way]}")
+
+        if way == WAY_SAMPLE:
+            st.markdown(SAMPLE_HELP)
+            if samples:
+                st.selectbox(
+                    SAMPLE_LABEL,
+                    list(samples.keys()),
+                    index=None,
+                    placeholder="Choose OFFER 1 to 6",
+                    key="sample_choice",
+                    on_change=load_sample,
+                    args=(samples,),
+                )
+                if demo_answers:
+                    st.markdown(DEMO_NOTICE)
             else:
-                cache[text] = {"answer": answer, "is_demo": False}
+                st.markdown("📂 Sample offers not found. Check that data/sample_offers.md exists.")
+
+            # A sample that was just picked is checked right away, with no extra click.
+            if st.session_state.pop("check_now", False):
+                check_words(samples, demo_answers)
+
+            # Let people read the sample's words, if they want to.
+            choice = st.session_state.get("sample_choice")
+            if choice in samples:
+                with st.expander(SAMPLE_WORDS_LABEL, icon="📄"):
+                    st.markdown(safe_text(samples[choice]))
+            show_result_ready()
+
+        elif way == WAY_SAY:
+            show_voice_input()
+            # Once the person says "Yes, use this", the words appear here to read over.
+            if st.session_state.get("voice_ready"):
+                st.success(HEARD_USED_LINE, icon="✅")
+                show_words_box()
+                show_check_button(samples, demo_answers)
+
+        else:
+            st.markdown(TYPE_HELP)
+            show_words_box()
+            show_check_button(samples, demo_answers)
 
 
-def show_offer_result():
-    """The right column: the result card, or a card saying where it will appear.
-    Returns True if the scam card was shown here."""
-    text = st.session_state.get("offer_text", "").strip()
+def show_result_step():
+    """Step 3: the result card, or a card saying where it will appear."""
+    text = current_words().strip()
     cache = st.session_state.get("offer_cache", {})
 
-    # Nothing checked yet for this exact text: say where the result will go.
+    # Nothing checked yet for these exact words: say where the result will go.
     if not (text and text in cache):
         with st.container(key="card_offer_waiting"):
-            st.markdown(f"### {OFFER_WAITING_TITLE}")
+            st.markdown(f"### {RESULT_TITLE}")
             st.markdown(OFFER_WAITING_TEXT)
-        return False
+        return
 
     entry = cache[text]
     # The safety layer runs on EVERY reading, saved or live, before scoring:
     # 1. check each quote against the pasted text, 2. apply the guards.
     checked = verify_quotes(text, entry["answer"])
     guarded = apply_guards(checked)
-    guards = guarded["guards"]
-
-    # Any warning sign found: the scam card goes ABOVE the result.
-    scam_shown = False
-    if guards["show_scam_card"]:
-        show_scam_card("card_scam_top", found_count=guards["red_flag_count"])
-        scam_shown = True
-
     show_offer_card(guarded, entry["is_demo"])
-    return scam_shown
 
 
 def show_check_offer():
-    """The Check an offer view: the input on the left, the result on the right.
-    styles.py puts them one under the other on smaller screens."""
-    st.warning(PRIVACY_LINE, icon="🛡️")
-    st.markdown(
-        "Paste the words from a letter, brochure, email or ad, "
-        "tell us out loud what the salesperson said, "
-        "or pick one of our made-up sample offers."
-    )
-
+    """The Check an offer view: three steps, one under another."""
     samples = load_sample_offers()
     demo_answers = load_demo_answers() if DEMO_MODE else {}
 
-    # The left column runs first, so a click on Check is handled
-    # before the right column draws the result.
-    with st.container(key="layout_offer"):
-        with st.container(key="offer_input"):
-            show_offer_input(samples, demo_answers)
-        with st.container(key="offer_result"):
-            scam_shown = show_offer_result()
+    way = show_way_step()
+    show_input_step(way, samples, demo_answers)
+    show_result_step()
 
-    # At the bottom: the scam card (unless it's already above), the help card,
-    # and "Something looks wrong?"
-    show_safety_cards(include_scam=not scam_shown)
+    # At the bottom: the scam card, the help card, and "Something looks wrong?"
+    show_safety_cards()
 
 
 # ---------- Build the page, top to bottom ----------

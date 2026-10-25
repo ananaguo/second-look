@@ -38,6 +38,7 @@ CSS = """
     --section-space: 48px;      /* between sections */
     --side-margin: 5vw;         /* about 5% of the window on each side */
     --line-length: 75ch;        /* about 75 characters per line */
+    --card-padding: 32px;       /* the space inside a card, next to its border */
 }
 
 /* ---------- 2. No animations anywhere ---------- */
@@ -85,6 +86,14 @@ body *:not([data-testid="stIconMaterial"]) {
 .stApp [data-testid="stMarkdownContainer"] > *:last-child {
     margin-bottom: 0 !important;
 }
+/* Streamlit pulls every block of text up by about 22px (a negative margin).
+   Because the space under the last paragraph is already gone (the rule above),
+   that pull made separate blocks of text touch. Cancel it, so every block
+   gets the normal 20px gap. */
+.stApp [data-testid="stMarkdown"],
+.stApp [data-testid="stMarkdownContainer"] {
+    margin-bottom: 0 !important;
+}
 
 /* Keep paragraphs to about 75 characters per line, so they stay easy to read */
 .stApp [data-testid="stMarkdown"] p,
@@ -107,7 +116,7 @@ body *:not([data-testid="stIconMaterial"]) {
     padding: 20px 32px;
 }
 .stApp .st-key-notice_top p {
-    max-width: none;
+    max-width: none !important;
     margin: 0 auto !important;
     text-align: center;
 }
@@ -128,6 +137,22 @@ body *:not([data-testid="stIconMaterial"]) {
     font-weight: 700 !important;
     margin: 0 0 var(--text-space) 0 !important;
     padding: 0 !important;
+}
+/* Streamlit wraps each heading in its own little box, which adds space
+   above and below it. Remove that, so headings sit where we expect. */
+.stApp [data-testid="stHeadingWithActionElements"],
+.stApp [data-testid="stHeading"] {
+    margin: 0 !important;
+    padding: 0 !important;
+}
+/* A heading that is the last thing in its block of text (like a card title
+   written on its own) gets no space under it, so the normal 20px gap is the
+   only space between it and the next thing. */
+.stApp [data-testid="stMarkdownContainer"] > *:last-child h1,
+.stApp [data-testid="stMarkdownContainer"] > *:last-child h2,
+.stApp [data-testid="stMarkdownContainer"] > *:last-child h3,
+.stApp [data-testid="stMarkdownContainer"] > *:last-child h4 {
+    margin-bottom: 0 !important;
 }
 /* Page titles */
 .stApp h1 {
@@ -180,7 +205,7 @@ body *:not([data-testid="stIconMaterial"]) {
     background-color: var(--card);
     border: 1px solid var(--card-border);
     border-radius: 12px;
-    padding: 32px;
+    padding: var(--card-padding);
     margin-bottom: calc(var(--section-space) - var(--text-space));
 }
 /* The scam card gets a thick navy border, so it stands out by its shape too.
@@ -196,6 +221,11 @@ body *:not([data-testid="stIconMaterial"]) {
     border: 2px dashed var(--text-secondary);
     border-radius: 12px;
     padding: 20px 24px;
+}
+/* The warning signs box, when we found some: a thick solid navy border,
+   so it stands out by its shape too. (It also has its 🚩 icon and its count in words.) */
+.stApp [class*="st-key-notes_flags_found"] {
+    border: 4px solid var(--navy);
 }
 
 /* The thin gold line between sections. Decoration only. */
@@ -214,10 +244,6 @@ body *:not([data-testid="stIconMaterial"]) {
     font-size: 30px;
     letter-spacing: 4px;
     color: var(--navy);
-}
-/* The word and its count ("Small (1 of 4)") always stay on one line together */
-.stApp .gauge-value {
-    white-space: nowrap;
 }
 
 /* The two badges ("Getting money out" and "Cost").
@@ -273,7 +299,7 @@ body *:not([data-testid="stIconMaterial"]) {
     color: var(--text) !important;
 }
 
-/* ---------- 9. Questions with choices (Your situation, Voice speed) ---------- */
+/* ---------- 9. Questions with choices (Your situation, Voice speed, Check an offer) ---------- */
 /* The question above the choices: as big as a card title */
 .stApp [data-testid="stRadio"] [data-testid="stWidgetLabel"] p {
     font-size: 28px !important;
@@ -315,6 +341,41 @@ body *:not([data-testid="stIconMaterial"]) {
 .stApp [data-testid="stRadio"] [role="radiogroup"] label:has(input:checked) p {
     font-weight: 700;
 }
+/* Check an offer, step 1: the three ways sit on one line as three equal boxes
+   across the whole card. Streamlit makes the box around a choice widget only
+   as wide as its words, so every box from the card down to the choices is told
+   to use the full width. On smaller screens they stack (see section 21). */
+.stApp .st-key-card_offer_way [data-testid="stElementContainer"],
+.stApp .st-key-card_offer_way [data-testid="stRadio"],
+.stApp .st-key-card_offer_way [data-testid="stRadio"] > div {
+    width: 100% !important;
+    max-width: none !important;
+}
+.stApp .st-key-card_offer_way [role="radiogroup"] {
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px;
+    width: 100% !important;
+    max-width: none !important;
+}
+/* Streamlit wraps each choice in its own little box: let it fill its column */
+.stApp .st-key-card_offer_way [role="radiogroup"] > * {
+    width: 100% !important;
+    min-width: 0;
+    margin: 0 !important;
+}
+.stApp .st-key-card_offer_way [role="radiogroup"] label {
+    width: 100% !important;
+    height: auto !important;
+    flex: none !important;
+    margin: 0 !important;
+    min-height: 72px;
+}
+/* Step 1's sentences may use the whole width of the card,
+   so the privacy line fits on one line on a wide screen */
+.stApp .st-key-card_offer_way p {
+    max-width: none !important;
+}
 
 /* The Compare checkbox: big and bold, so it is easy to click */
 .stApp [data-testid="stCheckbox"] label p {
@@ -323,11 +384,12 @@ body *:not([data-testid="stIconMaterial"]) {
 }
 
 /* ---------- 10. Check an offer: text box, drop-down, recorder ---------- */
-/* Big labels, as big as a card title */
+/* Their labels: bold and clear, but a little smaller than the step titles,
+   so the steps lead the eye */
 .stApp [data-testid="stTextArea"] [data-testid="stWidgetLabel"] p,
 .stApp [data-testid="stSelectbox"] [data-testid="stWidgetLabel"] p,
 .stApp [data-testid="stAudioInput"] [data-testid="stWidgetLabel"] p {
-    font-size: 28px !important;
+    font-size: 24px !important;
     font-weight: 700;
     line-height: 1.3;
     color: var(--navy) !important;
@@ -345,13 +407,14 @@ body *:not([data-testid="stIconMaterial"]) {
     color: var(--text-secondary) !important;
     opacity: 1;
 }
-/* The drop-down: tall, white inside, easy to click */
+/* The drop-down: tall, white inside, with a clear border.
+   (!important, because Streamlit's own style removes the border otherwise.) */
 .stApp [data-testid="stSelectbox"] [data-baseweb="select"] > div {
     min-height: 60px;
     font-size: 22px;
-    background-color: var(--card);
-    border: 2px solid var(--text-secondary);
-    border-radius: 12px;
+    background-color: var(--card) !important;
+    border: 2px solid var(--text-secondary) !important;
+    border-radius: 12px !important;
 }
 /* Dark words in the drop-down, including "Choose OFFER 1 to 6" */
 .stApp [data-testid="stSelectbox"] [data-baseweb="select"] * {
@@ -457,14 +520,27 @@ body *:not([data-testid="stIconMaterial"]) {
 }
 
 /* ---------- 13. No sidebar and no hidden menus ---------- */
+/* Streamlit's own menu, Deploy button, colored top line, footer and sidebar */
 #MainMenu,
 footer,
-header[data-testid="stHeader"],
-[data-testid="stToolbar"],
+[data-testid="stMainMenu"],
+[data-testid="stAppDeployButton"],
+[data-testid="stDecoration"],
 [data-testid="stSidebar"],
 [data-testid="stSidebarCollapsedControl"],
 [data-testid="collapsedControl"] {
     display: none !important;
+}
+/* Streamlit's top bar stays, but see-through, so its small "Running…" and
+   "Connecting…" message can still show in the top right corner. Without it,
+   a stopped or stuck app looks like a blank page.
+   Clicks pass through the bar to the page below; only the message reacts. */
+header[data-testid="stHeader"] {
+    background: transparent !important;
+    pointer-events: none;
+}
+header[data-testid="stHeader"] [data-testid="stStatusWidget"] {
+    pointer-events: auto;
 }
 
 /* ---------- 14. Full-width bands (Welcome view and the footer) ---------- */
@@ -568,10 +644,6 @@ header[data-testid="stHeader"],
 /* About 48px below each section, like the cards */
 .stApp [class*="st-key-section_"] {
     margin-bottom: calc(var(--section-space) - var(--text-space));
-}
-/* Common questions: narrower, so the answers stay easy to read */
-.stApp .st-key-section_faq {
-    max-width: 960px;
 }
 
 /* How it works: three white boxes in a row */
@@ -726,18 +798,36 @@ header[data-testid="stHeader"],
     margin-top: auto;
 }
 
-/* ---------- 19. Check an offer: two columns ---------- */
-/* Left: the text box, sample menu and microphone. Right: the result.
-   The result side is a little wider, because it holds more. */
-.stApp .st-key-layout_offer {
+/* ---------- 19. Two parts side by side ---------- */
+/* A split's key starts with "split_" in app.py or welcome.py.
+   On a wide screen the left part (usually the page's words) is a little wider,
+   and the right part (usually a card with the next step) fills the rest of the row,
+   so the right side of the window is never empty. */
+.stApp [class*="st-key-split_"] {
     display: grid !important;
-    grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+    grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
     gap: var(--section-space) !important;
     align-items: start;
+    margin-bottom: calc(var(--section-space) - var(--text-space));
 }
-.stApp .st-key-layout_offer > * {
+.stApp [class*="st-key-split_"] > * {
     min-width: 0;
     width: auto !important;
+}
+.stApp [class*="st-key-split_"] [class*="st-key-card_"],
+.stApp [class*="st-key-split_"] [class*="st-key-section_"] {
+    margin-bottom: 0 !important;
+}
+/* The words on the left start at the same height as the title inside
+   the card on the right (the card's inside space plus its 1px border). */
+.stApp .st-key-explore_intro,
+.stApp .st-key-compare_intro,
+.stApp .st-key-split_welcome .st-key-section_faq {
+    padding-top: calc(var(--card-padding) + 1px);
+}
+/* The scam card and the help card: two equal halves */
+.stApp .st-key-split_safety {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 /* ---------- 20. The Compare table ---------- */
@@ -827,13 +917,20 @@ header[data-testid="stHeader"],
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 }
-/* Check an offer: one column, with the text box first and the result under it */
+/* Every split: one column, left part first */
 @media (max-width: 999px) {
-    .stApp .st-key-layout_offer {
-        grid-template-columns: minmax(0, 1fr);
+    .stApp [class*="st-key-split_"] {
+        grid-template-columns: minmax(0, 1fr) !important;
+    }
+    /* Stacked, the words no longer need to line up with a card beside them */
+    .stApp .st-key-explore_intro,
+    .stApp .st-key-compare_intro,
+    .stApp .st-key-split_welcome .st-key-section_faq {
+        padding-top: 0;
     }
 }
-/* Narrow windows: steps, help lines and question cards go one under another */
+/* Narrow windows: steps, help lines, question cards and the three ways
+   go one under another */
 @media (max-width: 899px) {
     .stApp .step-grid,
     .stApp .help-grid {
@@ -842,9 +939,15 @@ header[data-testid="stHeader"],
     .stApp .st-key-grid_questions {
         --grid-columns: 1;
     }
+    .stApp .st-key-card_offer_way [role="radiogroup"] {
+        grid-template-columns: minmax(0, 1fr);
+    }
 }
 /* Phones: every row stacks into one column */
 @media (max-width: 640px) {
+    :root {
+        --card-padding: 20px;
+    }
     .stApp [data-testid="stHorizontalBlock"] {
         flex-direction: column !important;
         flex-wrap: nowrap !important;
@@ -864,9 +967,11 @@ header[data-testid="stHeader"],
         padding-top: 40px !important;
         padding-bottom: 40px !important;
     }
-    .stApp [class*="st-key-card_"],
     .stApp .step-grid li {
         padding: 20px;
+    }
+    .stApp .st-key-notice_top {
+        padding: 16px 20px;
     }
     .stApp .st-key-band_dark_hero h1 {
         font-size: 44px !important;

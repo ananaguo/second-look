@@ -3,7 +3,7 @@
 #   1. A headline band with two big buttons
 #   2. "How it works" in three steps
 #   3. A band with the six labels, from Safe Harbor to Uncharted Waters
-#   4. "Common questions"
+#   4. "Common questions", with the voice card beside it
 # app.py calls show_welcome(). All the styling lives in styles.py.
 # The labels themselves come from TIERS in products.py, never from here.
 
@@ -253,5 +253,9 @@ def show_welcome(go_to, show_voice_card):
     show_hero(go_to)
     show_steps()
     show_tiers()
-    show_faq()
-    show_voice_card()
+    # Common questions on the left, the voice card on the right.
+    # The key starts with "split_", so styles.py puts them side by side
+    # (one under the other on smaller screens).
+    with st.container(key="split_welcome"):
+        show_faq()
+        show_voice_card()
