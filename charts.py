@@ -1,10 +1,16 @@
 # charts.py
-# The two charts in Second Look, drawn with Altair (it comes with Streamlit).
+# Every chart in Second Look, drawn with Altair (it comes with Streamlit).
 #   show_worst_year_chart(rows)  Explore products: what $10,000 became in its worst year
 #   show_fees_chart(rows)        Compare: what yearly fees add up to over 10 years
+#   show_returns_card(...)       History: every year's return since 1928
+#   show_growth_card(...)        History: what $10,000 became, with interest reinvested
+#   show_history_note(history)   History: the "past results" line under both charts
 # rows is a list of (product, result) pairs from app.py, already in label order
 # (Safe Harbor first, Uncharted Waters last).
 # The tier always comes from scoring.py (inside each result). Nothing here picks a tier.
+
+import csv
+import os
 
 import altair as alt
 import streamlit as st
@@ -13,21 +19,27 @@ from scoring import tier_label
 
 # ---------- How the charts look ----------
 FONT = "Times New Roman"
-NAVY = "#14213D"        # the bars and the words on them
-TEXT = "#1B1F24"        # axis words
+NAVY = "#14213D"        # bars, gains, and the stocks line
+BROWN = "#6B2D1F"       # losses, and the bonds line
+GRAY = "#4A5260"        # the Treasury bills line
+TEXT = "#1B1F24"        # axis words and the zero line
 GRID = "#D5DAE1"        # thin grid lines
 WHITE = "#FFFFFF"       # the chart's background (the card is white too)
-LABEL_SIZE = 18         # axis labels and the words next to each bar
+LABEL_SIZE = 18         # axis labels and the words on the chart
 TITLE_SIZE = 20         # axis titles
+CHART_TITLE_SIZE = 24   # small titles inside a chart, like "1930s"
 ROW_HEIGHT = 56         # pixels for each bar's row, so bars are easy to tell apart
 BAR_THICKNESS = 32      # how thick each bar is
 NAME_WIDTH = 420        # the longest a product name on the left may be, in pixels
+DECADE_HEIGHT = 260     # how tall each decade's chart is on History
+GROWTH_HEIGHT = 460     # how tall the "What $10,000 became" chart is
 
 # ---------- Words ----------
 EXAMPLE_AMOUNT = 10000
 FEE_YEARS = 10
 TABLE_LABEL = "Show these numbers as a table"
 SEPARATOR = " · "       # between the parts of a bar's words
+MINUS = "−"             # a real minus sign, read aloud as "minus"
 
 WORST_TITLE = "In its worst year, what $10,000 became"
 WORST_SENTENCE = (
@@ -46,6 +58,35 @@ FEES_SENTENCE = (
 SURRENDER_TEXT = "plus surrender charges"
 VARIES_TEXT = "Varies"
 
+# ---------- History: the data ----------
+PROJECT_FOLDER = os.path.dirname(os.path.abspath(__file__))
+HISTORY_FILE = os.path.join(PROJECT_FOLDER, "data", "history.csv")
+HISTORY_SOURCE = "NYU Stern (Damodaran)"
+HISTORY_SOURCE_URL = "https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datafile/histretSP.html"
+
+# The three choices, in the order they appear. "key" is the column in history.csv.
+HISTORY_SERIES = [
+    {"key": "stocks", "name": "U.S. stocks (S&P 500)", "short": "U.S. stocks", "color": NAVY,
+     "dash": [1, 0], "shape": "circle"},
+    {"key": "tbonds", "name": "10-year Treasury bonds", "short": "10-year Treasury bonds", "color": BROWN,
+     "dash": [12, 6], "shape": "square"},
+    {"key": "tbills", "name": "3-month Treasury bills", "short": "3-month Treasury bills", "color": GRAY,
+     "dash": [3, 5], "shape": "triangle-up"},
+]
+SERIES_KEYS = [series["key"] for series in HISTORY_SERIES]
+
+# Start years for "What $10,000 became", and how long it runs (0 means to the end).
+START_YEARS = [1928, 1950, 1970, 1990, 2000, 2010]
+RUN_LENGTHS = [5, 10, 20, 0]
+
+GAIN_WORD = "Gain"
+LOSS_WORD = "Loss"
+HISTORY_NOTE = (
+    "Past results don't predict the future. These are index results and ignore fees and taxes. "
+    "Source: [{source}]({url}), {first}–{last}."
+)
+HISTORY_MISSING = "📂 The history numbers were not found. Check that data/history.csv exists."
+
 
 # ---------- Small helpers ----------
 
@@ -56,7 +97,15 @@ def safe_text(text):
 
 def dollars(amount):
     """A whole number of dollars, like 5620 → "$5,620"."""
-    return f"${amount:,}"
+    return f"${round(amount):,}"
+
+
+def signed_percent(value):
+    """A yearly return in words for the chart, like "+12.4%" or "−43.8%".
+    Very small returns get two decimals, so a tiny loss never shows as "−0.0%"."""
+    digits = 2 if abs(value) < 0.1 else 1
+    sign = MINUS if value < 0 else "+"
+    return f"{sign}{abs(value):.{digits}f}%"
 
 
 def sources_text(product):
@@ -65,8 +114,46 @@ def sources_text(product):
     return "; ".join(parts) if parts else "No sources yet"
 
 
+def series_info(key):
+    """The name, color and line style for one of the three choices."""
+    for series in HISTORY_SERIES:
+        if series["key"] == key:
+            return series
+    return HISTORY_SERIES[0]
+
+
+def apply_look(chart):
+    """Fonts, sizes and colors for any chart. Altair charts don't animate, so nothing moves."""
+    return (
+        chart.configure(font=FONT, background=WHITE)
+        .configure_axis(
+            labelFont=FONT,
+            titleFont=FONT,
+            labelFontSize=LABEL_SIZE,
+            titleFontSize=TITLE_SIZE,
+            labelColor=TEXT,
+            titleColor=TEXT,
+            gridColor=GRID,
+            domainColor=TEXT,
+        )
+        .configure_title(
+            font=FONT,
+            fontSize=CHART_TITLE_SIZE,
+            color=NAVY,
+            anchor="start",
+        )
+        .configure_view(stroke=None)
+    )
+
+
+def show_table(table):
+    """The box you open to see a chart's numbers as a table."""
+    with st.expander(TABLE_LABEL, icon="📋"):
+        st.dataframe(table, hide_index=True)
+
+
 def bar_chart(records, x_title, x_max, tooltip, description, tick_values=None):
-    """One horizontal bar chart, used by both charts.
+    """One horizontal bar chart, used by the two product charts.
     Each record needs: product, value (a number), has_bar (True or False)
     and bar_text (the words written next to the bar).
     x_max is a little bigger than the longest bar, so the words next to it fit."""
@@ -126,22 +213,7 @@ def bar_chart(records, x_title, x_max, tooltip, description, tick_values=None):
         height=alt.Step(ROW_HEIGHT),       # one tall row per product
         description=description,          # read by screen readers
     )
-
-    # Fonts, sizes and colors. Altair charts don't animate, so nothing moves.
-    return (
-        chart.configure(font=FONT, background=WHITE)
-        .configure_axis(
-            labelFont=FONT,
-            titleFont=FONT,
-            labelFontSize=LABEL_SIZE,
-            titleFontSize=TITLE_SIZE,
-            labelColor=TEXT,
-            titleColor=TEXT,
-            gridColor=GRID,
-            domainColor=TEXT,
-        )
-        .configure_view(stroke=None)
-    )
+    return apply_look(chart)
 
 
 def show_chart_card(key, title, sentence, chart, table):
@@ -153,8 +225,7 @@ def show_chart_card(key, title, sentence, chart, table):
         st.markdown(safe_text(sentence))
         # theme=None: use our own fonts and colors, not Streamlit's.
         st.altair_chart(chart, theme=None)
-        with st.expander(TABLE_LABEL, icon="📋"):
-            st.dataframe(table, hide_index=True)
+        show_table(table)
 
 
 # ---------- Chart 1: the worst year (Explore products) ----------
@@ -308,3 +379,392 @@ def show_fees_chart(rows):
         for record in records
     ]
     show_chart_card("card_chart_fees", FEES_TITLE, FEES_SENTENCE, chart, table)
+
+
+# ---------- History: reading data/history.csv ----------
+
+@st.cache_data(show_spinner=False)
+def load_history():
+    """Every year from data/history.csv, oldest first, as percents:
+    [{"year": 1928, "stocks": 43.8, "tbonds": 0.8, "tbills": 3.1}, ...].
+    An empty list if the file is missing or broken."""
+    rows = []
+    try:
+        with open(HISTORY_FILE, encoding="utf-8") as file:
+            for line in csv.DictReader(file):
+                try:
+                    row = {"year": int(line["year"])}
+                    for key in SERIES_KEYS:
+                        row[key] = float(line[key])
+                except (KeyError, TypeError, ValueError):
+                    continue  # skip a row that isn't complete
+                rows.append(row)
+    except OSError:
+        return []
+
+    # The file may hold decimals, like -0.4384 for a 43.84% loss.
+    # If every value is between -1 and 1, they are decimals: turn them into percents.
+    values = [row[key] for row in rows for key in SERIES_KEYS]
+    if values and all(-1 <= value <= 1 for value in values):
+        for row in rows:
+            for key in SERIES_KEYS:
+                row[key] = row[key] * 100
+
+    rows.sort(key=lambda row: row["year"])
+    return rows
+
+
+def first_and_last_year(history):
+    """The first and last year in the data, like (1928, 2025)."""
+    return history[0]["year"], history[-1]["year"]
+
+
+def count_losses(history, key):
+    """How many years lost money, and how many years there are."""
+    losses = sum(1 for row in history if row[key] < 0)
+    return losses, len(history)
+
+
+# ---------- History chart 1: every year since 1928 ----------
+
+def return_records(history, key):
+    """One record per year for the yearly-returns chart."""
+    series = series_info(key)
+    records = []
+    for row in history:
+        value = row[key]
+        year = row["year"]
+        records.append({
+            "year": year,
+            "left": year - 0.4,         # the bar's left edge
+            "right": year + 0.4,        # the bar's right edge
+            "zero": 0,                  # every bar starts at the zero line
+            "decade": year // 10 * 10,
+            "value": value,
+            "label": signed_percent(value),
+            "kind": LOSS_WORD if value < 0 else GAIN_WORD,
+            "series": series["name"],
+            "source": HISTORY_SOURCE,
+        })
+    return records
+
+
+def returns_scale(records):
+    """One up-and-down scale for every decade, so bar heights can be compared.
+    It always shows the zero line, with room above and below for the words."""
+    values = [record["value"] for record in records]
+    low = min(0, min(values))
+    high = max(0, max(values))
+    room = (high - low) * 0.2 or 1
+    return alt.Scale(domain=[low - room, high + room], nice=False)
+
+
+def decade_chart(records, decade, y_scale):
+    """The bars for one decade, like 1930 to 1939.
+    Gains go up from the zero line in navy, losses go down in brown,
+    and every bar has its number written on it, with a + or − sign."""
+    data = alt.Data(values=[record for record in records if record["decade"] == decade])
+    years = [record["year"] for record in records if record["decade"] == decade]
+
+    # Ten places for the ten years of the decade, so bars are the same width
+    # in every decade. Only years with numbers get a year under them.
+    x_scale = alt.Scale(domain=[decade - 0.5, decade + 9.5], nice=False, zero=False)
+    color = alt.Color(
+        "kind:N",
+        scale=alt.Scale(domain=[GAIN_WORD, LOSS_WORD], range=[NAVY, BROWN]),
+        legend=None,
+    )
+    tooltip = [
+        alt.Tooltip("year:O", title="Year"),
+        alt.Tooltip("series:N", title="Choice"),
+        alt.Tooltip("label:N", title="Return"),
+        alt.Tooltip("kind:N", title="Gain or loss"),
+        alt.Tooltip("source:N", title="Source"),
+    ]
+
+    bars = alt.Chart(data).mark_bar().encode(
+        x=alt.X(
+            "left:Q",
+            scale=x_scale,
+            axis=alt.Axis(values=years, format="d", title=None, grid=False, labelAngle=0),
+        ),
+        x2="right:Q",
+        y=alt.Y(
+            "value:Q",
+            scale=y_scale,
+            axis=alt.Axis(title="Yearly return", tickCount=5, labelExpr=f"(datum.value < 0 ? '{MINUS}' : '') + abs(datum.value) + '%'"),
+        ),
+        y2="zero:Q",
+        color=color,
+        tooltip=tooltip,
+    )
+
+    # The words: above a gain, below a loss.
+    word_style = {"font": FONT, "fontSize": LABEL_SIZE, "fontWeight": "bold"}
+    gain_words = (
+        alt.Chart(data)
+        .transform_filter("datum.value >= 0")
+        .mark_text(baseline="bottom", dy=-6, **word_style)
+        .encode(x=alt.X("year:Q", scale=x_scale), y=alt.Y("value:Q", scale=y_scale),
+                text="label:N", color=color, tooltip=tooltip)
+    )
+    loss_words = (
+        alt.Chart(data)
+        .transform_filter("datum.value < 0")
+        .mark_text(baseline="top", dy=6, **word_style)
+        .encode(x=alt.X("year:Q", scale=x_scale), y=alt.Y("value:Q", scale=y_scale),
+                text="label:N", color=color, tooltip=tooltip)
+    )
+
+    # The zero line, dark and thick, so "above" and "below" are easy to see.
+    zero_line = alt.Chart(alt.Data(values=[{"zero": 0}])).mark_rule(
+        color=TEXT, strokeWidth=2
+    ).encode(y=alt.Y("zero:Q", scale=y_scale))
+
+    chart = alt.layer(bars, zero_line, gain_words, loss_words).properties(
+        title=f"{decade}s",
+        width="container",
+        height=DECADE_HEIGHT,
+        description=f"Yearly returns in the {decade}s",
+    )
+    return apply_look(chart)
+
+
+def show_returns_card(history, pick_series):
+    """History: one bar per year for the choice picked.
+    pick_series is app.py's function that draws the choice and returns its key.
+    The years are split into one chart per decade, so every bar has room for its number."""
+    first = first_and_last_year(history)[0]
+    with st.container(key="card_chart_returns"):
+        st.markdown(f"### Every year since {first}")
+        key = pick_series()
+        losses, total = count_losses(history, key)
+        st.markdown(f"Bars below the line are losing years: {losses} of the {total} years shown.")
+
+        records = return_records(history, key)
+        y_scale = returns_scale(records)
+        for decade in sorted({record["decade"] for record in records}):
+            st.altair_chart(decade_chart(records, decade, y_scale), theme=None)
+
+        table = [
+            {
+                "Year": record["year"],
+                "Return": record["label"],
+                "Gain or loss": record["kind"],
+            }
+            for record in records
+        ]
+        show_table(table)
+
+
+# ---------- History chart 2: what $10,000 became ----------
+
+def run_years(history, start, length):
+    """The years the money is invested: from the start year,
+    for length years (0 means to the last year in the data)."""
+    first, last = first_and_last_year(history)
+    end = last if length == 0 else min(start + length - 1, last)
+    return [row["year"] for row in history if start <= row["year"] <= end]
+
+
+def growth_points(history, start, length):
+    """For each choice: the money at the start, then at the end of each year,
+    with dividends and interest reinvested.
+    Returns {"stocks": [(step, when, dollars), ...], ...}.
+    step 0 is the start; step 1 is the end of the first year, and so on."""
+    by_year = {row["year"]: row for row in history}
+    years = run_years(history, start, length)
+    points = {}
+    for key in SERIES_KEYS:
+        money = EXAMPLE_AMOUNT
+        line = [(0, f"Start of {start}", money)]
+        for step, year in enumerate(years, start=1):
+            money = money * (1 + by_year[year][key] / 100)
+            line.append((step, f"End of {year}", money))
+        points[key] = line
+    return points
+
+
+def biggest_drop(values):
+    """The biggest fall from a high point to a later low point.
+    Returns (high, low), or None if the money never fell below an earlier high."""
+    peak = values[0]
+    best = None
+    best_fall = 0
+    for value in values:
+        if value > peak:
+            peak = value
+        fall = (peak - value) / peak
+        if fall > best_fall:
+            best_fall = fall
+            best = (peak, value)
+    return best
+
+
+def spread_labels(end_values, gap):
+    """Heights for the words at the right end of each line, so they never sit
+    on top of each other. Each is at least gap away from the one below it.
+    end_values is {key: dollars}; returns {key: height}."""
+    heights = {}
+    below = None
+    for key, value in sorted(end_values.items(), key=lambda item: item[1]):
+        # The lowest words stay a little above the bottom line, so they aren't cut off.
+        height = max(value, gap * 0.6) if below is None else max(value, below + gap)
+        heights[key] = height
+        below = height
+    return heights
+
+
+def growth_chart(points):
+    """One line per choice, each with its own color, dash and dot shape,
+    and its name and ending value written at its right end."""
+    steps = len(points[SERIES_KEYS[0]]) - 1
+    names = [series_info(key)["name"] for key in SERIES_KEYS]
+
+    line_records = []
+    for key in SERIES_KEYS:
+        name = series_info(key)["name"]
+        for step, when, money in points[key]:
+            line_records.append({
+                "series": name,
+                "step": step,
+                "when": when,
+                "value": money,
+                "amount": dollars(money),
+                "source": HISTORY_SOURCE,
+            })
+
+    # The words at the right end of each line.
+    end_values = {key: points[key][-1][2] for key in SERIES_KEYS}
+    top = max(end_values.values())
+    heights = spread_labels(end_values, gap=top * 0.07)
+    end_records = [
+        {
+            "series": series_info(key)["name"],
+            "step": steps,
+            "label_y": heights[key],
+            "text": f"{series_info(key)['short']}: {dollars(end_values[key])}",
+        }
+        for key in SERIES_KEYS
+    ]
+
+    # Room on the right for the words; the year numbers stop at the last year.
+    x_scale = alt.Scale(domain=[0, max(steps, 1) * 1.6], nice=False)
+    # A year number every 1, 5 or 10 years, so they never crowd each other.
+    tick_step = 1 if steps <= 10 else 5 if steps <= 40 else 10
+    ticks = list(range(0, steps + 1, tick_step))
+    # Always show the last year's number. If it would crowd the one before it,
+    # it takes that one's place.
+    if ticks[-1] != steps:
+        if len(ticks) > 1 and steps - ticks[-1] < tick_step / 2:
+            ticks[-1] = steps
+        else:
+            ticks.append(steps)
+    y_scale = alt.Scale(domain=[0, max(heights.values()) * 1.1], nice=False)
+
+    # The same color, dash and shape for each choice in every layer.
+    color = alt.Color("series:N", scale=alt.Scale(
+        domain=names, range=[series_info(key)["color"] for key in SERIES_KEYS]), legend=None)
+    dash = alt.StrokeDash("series:N", scale=alt.Scale(
+        domain=names, range=[series_info(key)["dash"] for key in SERIES_KEYS]), legend=None)
+    shape = alt.Shape("series:N", scale=alt.Scale(
+        domain=names, range=[series_info(key)["shape"] for key in SERIES_KEYS]), legend=None)
+    tooltip = [
+        alt.Tooltip("series:N", title="Choice"),
+        alt.Tooltip("when:N", title="When"),
+        alt.Tooltip("amount:N", title="What $10,000 became"),
+        alt.Tooltip("source:N", title="Source"),
+    ]
+
+    line_data = alt.Data(values=line_records)
+    x = alt.X(
+        "step:Q",
+        scale=x_scale,
+        axis=alt.Axis(values=ticks, format="d", title=f"Years since the start of {points_start(points)}"),
+    )
+    y = alt.Y("value:Q", scale=y_scale, axis=alt.Axis(format="$,.0f", title="Value", tickCount=6))
+
+    lines = alt.Chart(line_data).mark_line(strokeWidth=4).encode(
+        x=x, y=y, color=color, strokeDash=dash, tooltip=tooltip
+    )
+    # A dot at every year (each choice has its own shape), except on long runs,
+    # where so many dots would hide the lines.
+    dot_size = 90 if steps <= 20 else 0
+    dots = alt.Chart(line_data).mark_point(filled=True, size=dot_size, opacity=1).encode(
+        x=x, y=y, color=color, shape=shape, tooltip=tooltip
+    )
+    words = alt.Chart(alt.Data(values=end_records)).mark_text(
+        align="left", baseline="middle", dx=14, font=FONT, fontSize=LABEL_SIZE, fontWeight="bold"
+    ).encode(
+        x=alt.X("step:Q", scale=x_scale),
+        y=alt.Y("label_y:Q", scale=y_scale),
+        text="text:N",
+        color=color,
+    )
+
+    chart = alt.layer(lines, dots, words).properties(
+        width="container",
+        height=GROWTH_HEIGHT,
+        description="What $10,000 became in stocks, bonds and Treasury bills",
+    )
+    return apply_look(chart)
+
+
+def points_start(points):
+    """The start year, read from the first point, like "Start of 1928" → "1928"."""
+    return points[SERIES_KEYS[0]][0][1].replace("Start of ", "")
+
+
+def show_growth_card(history, pick_start, pick_length):
+    """History: what $10,000 became in each of the three, with interest reinvested.
+    pick_start and pick_length are app.py's functions that draw the choices."""
+    last = first_and_last_year(history)[1]
+    with st.container(key="card_chart_growth"):
+        st.markdown("### What $10,000 became")
+        start = pick_start()
+        length = pick_length(last)
+
+        years = run_years(history, start, length)
+        if not years:
+            st.markdown(f"📂 We have no numbers for {start}.")
+            return
+        end = years[-1]
+        points = growth_points(history, start, length)
+
+        sentence = (
+            f"Each line starts with $10,000 at the start of {start}; "
+            f"the words at its right end show what it became by the end of {end}."
+        )
+        if length and len(years) < length:
+            sentence += f" Our numbers end in {last}, so this shows {len(years)} years."
+        st.markdown(safe_text(sentence))
+
+        st.altair_chart(growth_chart(points), theme=None)
+
+        # The biggest drop for stocks, in words.
+        stock_values = [money for step, when, money in points["stocks"]]
+        drop = biggest_drop(stock_values)
+        stocks_name = series_info("stocks")["name"]
+        if drop is None:
+            line = f"{stocks_name}: no drop along the way. It never ended a year below an earlier high."
+        else:
+            line = (
+                f"{stocks_name}: Biggest drop along the way: "
+                f"from {dollars(drop[0])} to {dollars(drop[1])}."
+            )
+        st.markdown(f"📉 **{safe_text(line)}**")
+
+        table = []
+        for index, (step, when, money) in enumerate(points["stocks"]):
+            row = {"When": when}
+            for key in SERIES_KEYS:
+                row[series_info(key)["name"]] = dollars(points[key][index][2])
+            table.append(row)
+        show_table(table)
+
+
+def show_history_note(history):
+    """The line under both History charts."""
+    first, last = first_and_last_year(history)
+    note = HISTORY_NOTE.format(source=HISTORY_SOURCE, url=HISTORY_SOURCE_URL, first=first, last=last)
+    st.markdown(f"ℹ️ {note}")

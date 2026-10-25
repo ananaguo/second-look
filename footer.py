@@ -1,13 +1,17 @@
 # footer.py
 # The footer at the bottom of every view:
-# where to get help, and the reminder that Second Look is not advice.
-# app.py calls show_footer(NOTICE) once, at the very end of the page.
+# where to get help, when the live data was last updated,
+# and the reminder that Second Look is not advice.
+# app.py calls show_footer(NOTICE, get_live_rates()) once, at the very end of the page.
 
 import html
 
 import streamlit as st
 
+from live_data import SOURCE_LINE, UNAVAILABLE_NOTE, any_missing, footer_rows
+
 FOOTER_TITLE = "☎️ Help and a second opinion"
+DATA_TITLE = "📡 Data last updated"
 NEW_TAB = "(opens in a new tab)"
 
 # The same numbers are in HELP_CARD_TEXT in app.py. If one changes, change both.
@@ -53,10 +57,31 @@ def help_html():
     return f'<div class="help-grid">{"".join(items)}</div>'
 
 
-def show_footer(notice):
-    """The navy footer band. notice is the "educational, not advice" sentence from app.py."""
+def data_html(rates):
+    """Each FRED series with its date and a link to its page on FRED."""
+    items = []
+    for name, series_id, when, link in footer_rows(rates):
+        items.append(
+            f"<li><strong>{html.escape(name)}</strong>: {html.escape(when)}. "
+            f'<a href="{html.escape(link)}" target="_blank" rel="noopener noreferrer">'
+            f"{html.escape(series_id)} on FRED</a> {NEW_TAB}</li>"
+        )
+    # Everything on one line: Streamlit could misread spaces at the start of a line.
+    return f'<ul>{"".join(items)}</ul>'
+
+
+def show_footer(notice, rates=None):
+    """The navy footer band. notice is the "educational, not advice" sentence from app.py.
+    rates comes from get_live_rates() in live_data.py."""
     # The key starts with "band_dark_", so styles.py makes it a full-width navy band.
     with st.container(key="band_dark_footer"):
         st.markdown(f"## {FOOTER_TITLE}")
         st.markdown(help_html(), unsafe_allow_html=True)
+
+        st.markdown(f"### {DATA_TITLE}")
+        st.markdown(data_html(rates), unsafe_allow_html=True)
+        st.markdown(SOURCE_LINE)
+        if any_missing(rates):
+            st.markdown(f"📡 **{UNAVAILABLE_NOTE}**")
+
         st.markdown(f"ℹ️ **{notice}**")

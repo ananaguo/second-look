@@ -70,6 +70,14 @@ TIERS = [
     },
 ]
 
+# Saved rates, shown when live FRED data isn't available.
+# Each one needs an as-of date ("YYYY-MM-DD"). Use None if we don't have one.
+SAVED_RATES = {
+    "tbill": {"pct": 4.1, "as_of": "2026-10-23"},     # TreasuryDirect / Trading Economics
+    "cd12": {"pct": 1.73, "as_of": "2026-09-21"},     # FDIC national rates
+    "savings": {"pct": 0.37, "as_of": "2026-09-21"},  # FDIC national rates
+    "ten_year": {"pct": None, "as_of": None},         # VERIFY: no saved figure yet
+}
 
 # The products. Each one is a dictionary with the same keys.
 # access must be one of: "anytime", "small_penalty", "locked_years"
@@ -393,6 +401,7 @@ PRODUCTS = [
         ],
     },
 ]
+
 
 # ==========================================================================
 # END OF EDIT HERE SECTION

@@ -8,7 +8,19 @@ import os
 
 import streamlit as st
 
-from charts import show_fees_chart, show_worst_year_chart
+from charts import (
+    HISTORY_MISSING,
+    HISTORY_SERIES,
+    RUN_LENGTHS,
+    SERIES_KEYS,
+    START_YEARS,
+    load_history,
+    show_fees_chart,
+    show_growth_card,
+    show_history_note,
+    show_returns_card,
+    show_worst_year_chart,
+)
 from checks import (
     FOUND_TAG,
     GOV_CLAIM_WARNING,
@@ -21,6 +33,14 @@ from checks import (
 )
 from claude_helper import read_offer
 from footer import show_footer
+from live_data import (
+    UNAVAILABLE_NOTE,
+    any_missing,
+    get_live_rates,
+    inflation_line,
+    rate_line,
+    tbill_rate_for_scoring,
+)
 from products import PRODUCTS, TIERS
 from scoring import (
     ACCESS_BADGES,
@@ -61,8 +81,8 @@ apply_styles()
 # False: every offer, samples included, is read live by Claude.
 DEMO_MODE = True
 
-# ---------- The five views, in the order their buttons appear ----------
-VIEWS = ["Welcome", "Your situation", "Explore products", "Compare", "Check an offer"]
+# ---------- The six views, in the order their buttons appear ----------
+VIEWS = ["Welcome", "Your situation", "Explore products", "Compare", "Check an offer", "History"]
 
 # The notice shown at the top of every view (and again in the footer).
 # One sentence, so it fits on one line on a wide screen.
@@ -150,7 +170,21 @@ EXAMPLE_AMOUNT = 10000
 # What the heading says when a product has no normal tier
 OFF_MAP_SENTENCE = "No tier: this needs a closer look."
 NOT_RATED_SENTENCE = "No tier yet: we are missing facts."
+# Which live rate belongs to which product (keys from SERIES in live_data.py)
+RATE_FOR_PRODUCT = {
+    "savings": "savings",
+    "cd12": "cd12",
+    "tbill": "tbill",
+    "bondindex": "ten_year",
+}
 
+
+def todays_rate(product):
+    """This product's rate line, live or saved. None if it has no rate."""
+    rate_key = RATE_FOR_PRODUCT.get(product.get("key"))
+    if rate_key is None:
+        return None
+    return rate_line(get_live_rates(), rate_key)
 # ---------- Voice: words and settings ----------
 SPEED_LABEL = "Voice speed"
 SPEED_CHOICES = [SPEED_SLOWER, SPEED_NORMAL]
@@ -267,6 +301,15 @@ DEMO_CARD_LINE = (
     "not a live check by Claude. The label still comes from our own rules."
 )
 
+# ---------- History: words for the choices ----------
+HISTORY_INTRO = (
+    "See how U.S. stocks, Treasury bonds and Treasury bills did in every year since 1928, "
+    "and what $10,000 would have become."
+)
+HISTORY_SERIES_LABEL = "Which one?"
+START_YEAR_LABEL = "📅 Start year"
+RUN_LENGTH_LABEL = "For how long?"
+
 # ---------- Safety cards (shown on Check an offer, Explore products and Compare) ----------
 
 HELP_CARD_TITLE = "☎️ Before a big decision"
@@ -331,7 +374,7 @@ def show_notice():
 
 
 def show_nav():
-    """The row of five big page buttons."""
+    """The row of six big page buttons."""
     current = st.session_state["view"]
     columns = st.columns(len(VIEWS), gap="small")
 
@@ -797,6 +840,10 @@ def show_worst_year(product, result):
 
     if tier == 1:
         st.markdown(f"**{safe_text(SAFE_HARBOR_LINE)}**")
+        # How much prices rose this past year, from FRED
+        prices = inflation_line(get_live_rates())
+        if prices:
+            st.markdown(f"📈 {safe_text(prices)}")
         return
 
     lost = result["worst_case_dollars"]
@@ -844,6 +891,8 @@ def show_numbers(product, result):
             f"**Worst year:** {safe_text(product['worst_year'])}\n\n"
             f"**Loss in that year:** {loss_text}\n\n"
             f"**What it might earn:** {safe_text(product['gain_note'])}\n\n"
+            + (f"**📡 {safe_text(todays_rate(product))}**\n\n" if todays_rate(product) else "")
+            + f"**Yearly cost:** {cost_text} {safe_text(product['cost_note'])}\n\n"
             f"**Yearly cost:** {cost_text} {safe_text(product['cost_note'])}\n\n"
             f"**Getting money out:** {safe_text(product['access_note'])}\n\n"
             f"**Insurance:** {safe_text(product['insurance_note'])}"
@@ -1061,6 +1110,13 @@ def sources_cell(product):
         return "No sources yet."
     return "<br>".join(links)
 
+def earn_cell(product):
+    """What it might earn, plus today's rate when the product has one."""
+    text = cell_text(product["gain_note"])
+    rate = todays_rate(product)
+    if rate:
+        text += f"<br><strong>📡 {cell_text(rate)}</strong>"
+    return text
 
 def compare_table_rows(rows):
     """Every row of the table: (row label, one cell per product).
@@ -1076,7 +1132,7 @@ def compare_table_rows(rows):
         ("Sales or surrender charge",
          [yes_no_cell(product["sales_or_surrender_charge"]) for product, result in rows]),
         ("Standard protections", [yes_no_cell(product["protections"]) for product, result in rows]),
-        ("What it might earn", [cell_text(product["gain_note"]) for product, result in rows]),
+        ("What it might earn", [earn_cell(product) for product, result in rows]),
         ("Insurance", [cell_text(product["insurance_note"]) for product, result in rows]),
     ]
 
@@ -1610,6 +1666,7 @@ def show_offer_card(answer, is_demo):
     promised = get_part(answer, "promised_return")
     result = assign_tier(
         facts,
+        tbill_rate_pct=tbill_rate_for_scoring(get_live_rates()),
         promised_return_pct=as_number(promised.get("value_pct")),
         guaranteed=yes_no_unknown(promised.get("guaranteed")) is True,
     )
@@ -1829,6 +1886,88 @@ def show_check_offer():
     show_safety_cards()
 
 
+# ---------- History: the choices above the two charts ----------
+# The charts themselves live in charts.py. These functions only draw the
+# choices and hand back what was picked.
+
+def remember_choice(key):
+    """Runs when a History choice changes. We keep our own copy,
+    because Streamlit forgets a choice when you visit another page."""
+    st.session_state[f"{key}_saved"] = st.session_state[key]
+
+
+def restore_choice(key, default):
+    """Put back the saved choice when coming back to this page."""
+    if key not in st.session_state:
+        st.session_state[key] = st.session_state.get(f"{key}_saved", default)
+
+
+def series_name(key):
+    """The words for one choice, like "U.S. stocks (S&P 500)"."""
+    for series in HISTORY_SERIES:
+        if series["key"] == key:
+            return series["name"]
+    return key
+
+
+def pick_history_series():
+    """Big radio buttons: stocks, bonds or bills. Returns the key picked."""
+    restore_choice("history_series", SERIES_KEYS[0])
+    return st.radio(
+        HISTORY_SERIES_LABEL,
+        SERIES_KEYS,
+        key="history_series",
+        on_change=remember_choice,
+        args=("history_series",),
+        format_func=series_name,
+    )
+
+
+def pick_start_year():
+    """A big drop-down list of start years. Returns the year picked."""
+    restore_choice("history_start", START_YEARS[0])
+    return st.selectbox(
+        START_YEAR_LABEL,
+        START_YEARS,
+        key="history_start",
+        on_change=remember_choice,
+        args=("history_start",),
+        format_func=str,
+    )
+
+
+def pick_run_length(last_year):
+    """Big radio buttons: 5, 10 or 20 years, or to the last year.
+    Returns the number of years (0 means to the last year)."""
+    restore_choice("history_length", RUN_LENGTHS[1])
+
+    def length_words(length):
+        return f"To {last_year}" if length == 0 else f"{length} years"
+
+    return st.radio(
+        RUN_LENGTH_LABEL,
+        RUN_LENGTHS,
+        key="history_length",
+        on_change=remember_choice,
+        args=("history_length",),
+        format_func=length_words,
+    )
+
+
+def show_history():
+    """The History view: every year's return, and what $10,000 became."""
+    history = load_history()
+    if not history:
+        st.markdown(HISTORY_MISSING)
+        return
+
+    st.markdown(safe_text(HISTORY_INTRO))
+    show_returns_card(history, pick_history_series)
+    show_growth_card(history, pick_start_year, pick_run_length)
+    # Under both charts: past results, fees and taxes, and the source.
+    show_history_note(history)
+
+
 # ---------- Build the page, top to bottom ----------
 
 # Start on Welcome the first time (or if the saved view is unknown)
@@ -1837,6 +1976,9 @@ if st.session_state.get("view") not in VIEWS:
 
 show_notice()
 show_nav()
+# If FRED is slow or down, say so in words (with an icon), never just a color.
+if any_missing(get_live_rates()):
+    st.info(UNAVAILABLE_NOTE, icon="📡")
 # Welcome has its own big headline (in welcome.py), so it skips the normal title.
 if st.session_state["view"] != "Welcome":
     show_heading()
@@ -1851,9 +1993,11 @@ elif st.session_state["view"] == "Compare":
     show_compare()
 elif st.session_state["view"] == "Check an offer":
     show_check_offer()
+elif st.session_state["view"] == "History":
+    show_history()
 else:
     show_coming_soon()
 
 show_start_over()
 # The footer, on every view: help numbers and the "not advice" notice.
-show_footer(NOTICE)
+show_footer(NOTICE, get_live_rates())

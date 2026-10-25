@@ -15,6 +15,9 @@ ACCESS_BADGES = {
 # Words shown when a product doesn't get a normal tier.
 OFF_MAP_LABEL = "Doesn't fit the map: check for a scam"
 NOT_RATED_LABEL = "Not rated yet"
+# The 3-month T-bill rate used when none is passed in.
+# app.py passes the live rate from live_data.py. Tests use this, so they work offline.
+SAVED_TBILL_RATE_PCT = 4.1
 
 # ---------- Answers from the Your situation page ----------
 # app.py shows these exact words as choices, so the rules below always match.
@@ -80,7 +83,7 @@ def get_worst_case_dollars(product, amount=10000):
     return round(amount * w / 100)
 
 
-def assign_tier(product, tbill_rate_pct=4.1, promised_return_pct=None, guaranteed=False):
+def assign_tier(product, tbill_rate_pct=SAVED_TBILL_RATE_PCT, promised_return_pct=None, guaranteed=False):
     """Follow THE MATH and return the tier, two badges, worst case and steps."""
     steps = []  # Plain sentences explaining each step.
     tier = None
