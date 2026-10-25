@@ -1,6 +1,6 @@
 # checks.py
 # The safety layer for "Check an offer".
-# Claude's answer is never trusted as it is. Before scoring.py picks a tier:
+# claude's answer is never trusted as it is. Before scoring.py picks a tier:
 #   1. verify_quotes() checks that every quote is really in the pasted offer.
 #   2. apply_guards() adds a few extra safety rules.
 # Nothing in this file picks a tier. scoring.py always does that.
@@ -25,10 +25,10 @@ SAFE_SENTENCE = "We can't say whether this product is right for you."
 ADVICE_WORDS = ["buy", "best", "recommended"]
 ADVICE_PHRASES = ["safe investment"]
 
-# The five facts in Claude's answer that each come with a quote.
+# The five facts in claude's answer that each come with a quote.
 FACT_KEYS = ["government_backed", "loss_possible", "access", "yearly_costs", "promised_return"]
 
-# The parts of a fact that hold Claude's answer (everything except the quote).
+# The parts of a fact that hold claude's answer (everything except the quote).
 # These become "unknown" when the quote can't be found.
 VALUE_FIELDS = ["value", "value_pct", "has_surrender_or_sales_charge", "guaranteed"]
 
@@ -64,7 +64,7 @@ def has_quote(part):
 def quote_in_offer(quote, offer_text):
     """True if the quote appears in the offer, ignoring capitals,
     extra spaces, and curly versus straight quote marks."""
-    # Quote marks that Claude put around the whole quote don't count.
+    # Quote marks that claude put around the whole quote don't count.
     wanted = normalize(quote).strip("'\" ")
     if not wanted:
         return False
@@ -83,7 +83,7 @@ def find_product_by_name(category):
 
 
 def says_yes(value):
-    """True if Claude answered "yes" (or true)."""
+    """True if claude answered "yes" (or true)."""
     if value is True:
         return True
     return isinstance(value, str) and value.strip().lower() == "yes"
@@ -100,10 +100,10 @@ def mark_unknown(part):
 # ---------- Step 1: check the quotes ----------
 
 def verify_quotes(offer_text, result):
-    """Check every quote in Claude's answer against the pasted offer.
+    """Check every quote in claude's answer against the pasted offer.
     Returns a NEW copy of the answer (the original is not changed) where:
       - each fact and red flag gets a "check" tag: FOUND_TAG or NOT_FOUND_TAG
-        (or None for a fact Claude didn't quote at all);
+        (or None for a fact claude didn't quote at all);
       - a fact whose quote can't be found is set to "unknown";
       - the category is an exact name from products.py, or "unknown"."""
     checked = copy.deepcopy(result) if isinstance(result, dict) else {}
@@ -125,7 +125,7 @@ def verify_quotes(offer_text, result):
         elif quote_in_offer(part["quote"], offer_text):
             part["check"] = FOUND_TAG
         else:
-            # Keep Claude's words so the screen can show what we looked for.
+            # Keep claude's words so the screen can show what we looked for.
             part["unverified_quote"] = part["quote"]
             mark_unknown(part)
             part["check"] = NOT_FOUND_TAG
@@ -161,14 +161,14 @@ def found_red_flags(result):
 
 
 def quote_check_counts(result):
-    """How many of Claude's quotes we found, and how many we couldn't.
+    """How many of claude's quotes we found, and how many we couldn't.
     Returns (found, not_found). Run verify_quotes first."""
     found = 0
     not_found = 0
     parts = [result.get(key) for key in FACT_KEYS] + list(result.get("red_flags") or [])
     for part in parts:
         if not isinstance(part, dict) or part.get("from_guard"):
-            continue  # the guard's own warning isn't one of Claude's quotes
+            continue  # the guard's own warning isn't one of claude's quotes
         if part.get("check") == FOUND_TAG:
             found += 1
         elif part.get("check") == NOT_FOUND_TAG:

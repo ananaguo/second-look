@@ -1,8 +1,8 @@
 # claude_helper.py
 # Compatibility filename: existing app and demo scripts import this module.
-# Live requests now use xAI Grok, not Anthropic.
-# Every call to Grok lives here.
-# Grok only READS an offer and quotes its words.
+# Live requests use the xAI endpoint; the filename remains for compatibility.
+# Every call to claude lives here.
+# claude only READS an offer and quotes its words.
 # The tier is never picked here. scoring.py always picks it.
 
 import json
@@ -12,7 +12,7 @@ import urllib.request
 import urllib.error
 import streamlit as st
 
-from prompts import OFFER_PROMPT
+from prompts import OFFER_PROMPT, PORTFOLIO_PROMPT
 
 # ---------- Settings ----------
 def setting(name, default=""):
@@ -22,13 +22,22 @@ def setting(name, default=""):
         return os.environ.get(name, default)
 
 MODEL = setting("XAI_MODEL", "grok-4.7")
+
+
+def get_api_key():
+    """Accept the user's renamed secret as well as the original setting."""
+    for name in ("CLAUDE_API_KEY", "XAI_API_KEY"):
+        value = setting(name)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
 API_URL = "https://api.x.ai/v1/chat/completions"
 MAX_TOKENS = 2000
 
 # prompts.py started with this text before the real prompt was pasted in.
 PROMPT_PLACEHOLDER = "PASTE THE OFFER PROMPT HERE"
 
-# The keys we expect in Grok's JSON answer.
+# The keys we expect in claude's JSON answer.
 EXPECTED_KEYS = [
     "category",
     "government_backed",
@@ -58,7 +67,7 @@ JSON_SHAPE = """{
   "spoken_summary": "under 60 words"
 }"""
 
-# What the access words mean, so Grok picks the right one.
+# What the access words mean, so claude picks the right one.
 ACCESS_MEANINGS = (
     'For access, "anytime" means money can come out anytime with no penalty; '
     '"small_penalty" means taking money out early costs a small amount, such as some interest; '
@@ -67,18 +76,15 @@ ACCESS_MEANINGS = (
 
 # ---------- Friendly error messages (shown on the screen) ----------
 ERROR_NO_PROMPT = "The offer prompt hasn't been added to prompts.py yet, so we can't check offers."
-ERROR_NO_KEY = (
-    "Second Look can't reach Grok because the API key is missing. "
-    "Add XAI_API_KEY to .streamlit/secrets.toml."
-)
-ERROR_BAD_KEY = "Grok did not accept the API key. Check XAI_API_KEY in .streamlit/secrets.toml."
-ERROR_CONNECTION = "Sorry, we couldn't reach Grok just now. Please wait a moment and click Check this offer again."
-ERROR_BAD_ANSWER = "Sorry, we couldn't read Grok's answer. Please click Check this offer again."
+ERROR_NO_KEY = "Offer analysis is not configured. Please contact the app administrator."
+ERROR_BAD_KEY = "The AI service could not authenticate this request. Please ask the app administrator to check the API key."
+ERROR_CONNECTION = "The AI service is unavailable right now. Please try again shortly."
+ERROR_BAD_ANSWER = "We could not read the AI service's response. Please try again."
 
 
 def make_user_message(offer_text, categories):
     """The message we send: the allowed categories, the JSON shape, then the offer.
-    The offer goes inside <offer> tags so Grok treats it as text to read,
+    The offer goes inside <offer> tags so claude treats it as text to read,
     not as instructions to follow."""
     category_lines = "\n".join(f"- {name}" for name in categories)
     return (
@@ -112,31 +118,31 @@ def strip_code_fences(text):
 
 
 def parse_answer(raw):
-    """Turn Grok's reply into a dictionary.
+    """Turn claude's reply into a dictionary.
     Returns None if it isn't the JSON we expect."""
     try:
         answer = json.loads(strip_code_fences(raw))
     except json.JSONDecodeError as error:
-        print(f"Could not parse Grok's reply as JSON: {error}")
+        print(f"Could not parse claude's reply as JSON: {error}")
         return None
 
     if not isinstance(answer, dict):
-        print("Grok's reply was JSON, but not a dictionary.")
+        print("claude's reply was JSON, but not a dictionary.")
         return None
 
     for key in EXPECTED_KEYS:
         if key not in answer:
-            print(f"Grok's reply is missing the key: {key}")
+            print(f"claude's reply is missing the key: {key}")
             return None
 
     return answer
 
 
 def read_offer(offer_text, categories):
-    """Read an offer with Grok; retain the existing (answer, error) interface."""
+    """Read an offer with claude; retain the existing (answer, error) interface."""
     if OFFER_PROMPT.strip().startswith(PROMPT_PLACEHOLDER):
         return None, ERROR_NO_PROMPT
-    api_key = setting("XAI_API_KEY")
+    api_key = get_api_key()
     if not isinstance(api_key, str) or not api_key.strip():
         return None, ERROR_NO_KEY
 
@@ -166,11 +172,11 @@ def read_offer(offer_text, categories):
             if error.code == 401:
                 return None, ERROR_BAD_KEY
             if error.code in (402, 403):
-                return None, "Grok denied this request. Check API credits and model permissions in your xAI console."
+                return None, "The AI service denied this request. Please ask the app administrator to check service access and credits."
             if error.code == 429:
-                return None, "Grok's request limit was reached. Check your API quota and try again later."
+                return None, "The AI service request limit was reached. Please try again later."
             if error.code in (400, 404):
-                return None, "Grok could not accept this request. Check that XAI_MODEL is an available chat model in your xAI account."
+                return None, "The AI service could not accept this request. Please ask the app administrator to check the model configuration."
             return None, ERROR_CONNECTION
         except (urllib.error.URLError, TimeoutError, OSError):
             return None, ERROR_CONNECTION
@@ -200,3 +206,50 @@ def read_offer(offer_text, categories):
             if valid:
                 return answer, None
     return None, ERROR_BAD_ANSWER
+
+
+
+# ---------- Portfolio explainer (used by portfolio.py) ----------
+# Grok gets ONLY the findings text: no email, nicknames or company names.
+PORTFOLIO_MODEL = MODEL
+PORTFOLIO_MAX_TOKENS = 600
+
+
+def explain_findings(findings_text):
+    """Ask Grok to rewrite the portfolio findings in plain words.
+    Returns (text, None) when it works, or (None, a message) when it doesn't.
+    portfolio.py checks the text before anyone sees it."""
+    api_key = get_api_key()
+    if not api_key:
+        return None, ERROR_NO_KEY
+
+    payload = {
+        "model": PORTFOLIO_MODEL,
+        "max_tokens": PORTFOLIO_MAX_TOKENS,
+        "messages": [
+            {"role": "system", "content": PORTFOLIO_PROMPT},
+            {"role": "user", "content": findings_text},
+        ],
+        "stream": False,
+    }
+    request = urllib.request.Request(
+        API_URL,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            result = json.loads(response.read().decode("utf-8"))
+        choice = result["choices"][0]
+        text = choice["message"]["content"]
+    except urllib.error.HTTPError as error:
+        print(f"Grok portfolio problem: HTTP {error.code}")
+        return None, ERROR_BAD_KEY if error.code == 401 else ERROR_CONNECTION
+    except Exception as error:
+        print(f"Grok portfolio problem: {error}")
+        return None, ERROR_CONNECTION
+
+    if choice.get("finish_reason") == "length" or not isinstance(text, str) or not text.strip():
+        return None, ERROR_BAD_ANSWER
+    return text.strip(), None

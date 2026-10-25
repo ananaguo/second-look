@@ -2,6 +2,7 @@
 # The screens of Second Look.
 # Run it with:  streamlit run app.py
 
+import datetime
 import html
 import json
 import os
@@ -18,6 +19,7 @@ from charts import (
     START_YEARS,
     load_history,
     show_fees_chart,
+    show_product_risk,
     show_growth_card,
     show_history_note,
     show_returns_card,
@@ -32,7 +34,10 @@ from checks import (
     quote_check_counts,
     verify_quotes,
 )
+# claude_helper.py keeps its old name, but it now asks Grok to read offers.
 from claude_helper import read_offer
+# Optional accounts (Supabase). Guests never need them.
+import db
 from demo_replay import (
     REPLAY_OFFER,
     banner_text,
@@ -49,6 +54,8 @@ from live_data import (
     rate_line,
     tbill_rate_for_scoring,
 )
+# The My products view (for signed-in people) lives in my_products.py.
+import my_products
 from products import PRODUCTS
 # The words the voice says, and the helpers that read the AI's answer,
 # live in results.py, so the app and save_demo_cache.py always match.
@@ -86,7 +93,8 @@ from voice_helper import (
     get_speech,
     get_transcript,
 )
-from welcome import WELCOME_WORDS, show_welcome
+# PRIVACY_NOTICE lives in welcome.py, so Welcome and My account say the same thing.
+from welcome import PRIVACY_NOTICE, WELCOME_WORDS, show_welcome
 
 # ---------- Page setup (this must be the first Streamlit command) ----------
 st.set_page_config(
@@ -99,6 +107,68 @@ st.set_page_config(
 # The look and feel: fonts, colors, sizes and spacing all live in styles.py.
 apply_styles()
 
+# Let content and notices use the available page width. Existing columns
+# still control their own layout, and text wraps normally on small screens.
+st.markdown(
+    """
+    <style>
+    /* Captions and privacy paragraphs use their full parent width. */
+    .stApp p,
+    .stApp [data-testid="stCaptionContainer"],
+    .stApp [data-testid="stCaptionContainer"] p,
+    .stApp .stCaption {
+        max-width: none !important;
+    }
+    .stApp [data-testid="stCaptionContainer"],
+    .stApp [data-testid="stCaptionContainer"] p {
+        width: 100% !important;
+        box-sizing: border-box !important;
+        white-space: normal !important;
+    }
+    /* Modal and backdrop must sit above the fixed navigation header. */
+    [data-testid="stDialog"], [data-baseweb="modal"] {
+        z-index: 2000000 !important;
+    }
+    [data-testid="stDialog"] [role="dialog"] {
+        max-height: calc(100dvh - 48px) !important;
+        overflow-y: auto !important;
+    }
+    .stApp [data-testid="stMainBlockContainer"],
+    .stApp .main .block-container,
+    .stApp .stMain .block-container {
+        width: 100% !important;
+        max-width: none !important;
+        padding-left: clamp(1rem, 3vw, 3rem) !important;
+        padding-right: clamp(1rem, 3vw, 3rem) !important;
+        box-sizing: border-box !important;
+    }
+    .stApp [data-testid="stMarkdownContainer"],
+    .stApp [data-testid="stMarkdownContainer"] p,
+    .stApp [data-testid="stMarkdownContainer"] ul,
+    .stApp [data-testid="stMarkdownContainer"] ol {
+        max-width: none !important;
+    }
+    .stApp [data-testid="stAlert"],
+    .stApp [data-testid="stAlertContainer"],
+    .stApp [data-testid="stAlertContent"],
+    .stApp [data-testid="stAlert"] [data-testid="stMarkdownContainer"],
+    .stApp [data-testid="stAlertContainer"] [data-testid="stMarkdownContainer"] {
+        width: 100% !important;
+        max-width: none !important;
+        min-width: 0 !important;
+        box-sizing: border-box !important;
+    }
+    .stApp [data-testid="stAlert"] p,
+    .stApp [data-testid="stAlertContainer"] p {
+        max-width: none !important;
+        white-space: normal !important;
+        overflow-wrap: break-word !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 # ---------- Demo mode ----------
 # True: the six sample offers use saved readings from data/sample_answers.json,
 #       so they work without calling the AI (no API credits needed).
@@ -107,7 +177,7 @@ DEMO_MODE = True
 
 # ---------- Demo replay (the big switch at the top of every page) ----------
 # When it is on, the app plays back one real run saved by save_demo_cache.py:
-# the AI's reading of OFFER 1 and the saved voices. No the AI, no Cartesia.
+# the AI's reading of OFFER 1 and the saved voices. No AI, no Cartesia.
 REPLAY_ON_BUTTON = "📼 Demo replay is OFF. Click to turn it on (no internet needed)"
 REPLAY_OFF_BUTTON = "📼 Demo replay is ON. Click to go back to live mode"
 REPLAY_MISSING = (
@@ -131,8 +201,17 @@ REPLAY_SAMPLE_NOTICE = (
     "The other samples use saved, hand-written readings."
 )
 
-# ---------- The six views, in the order their buttons appear ----------
-VIEWS = ["Welcome", "Your situation", "Explore products", "Compare", "Check an offer", "History"]
+# ---------- The eight views, in the order their buttons appear ----------
+VIEWS = [
+    "Welcome",
+    "Your situation",
+    "Explore products",
+    "Compare",
+    "Check an offer",
+    "History",
+    "My products",
+    "My account",
+]
 
 # The notice shown at the top of every view (and again in the footer).
 # One sentence, so it fits on one line on a wide screen.
@@ -301,6 +380,14 @@ OFFER_WAITING_TEXT = (
     "any warning signs, and questions to ask before you sign."
 )
 
+# Saving a check to My history (signed-in people only)
+SAVE_HISTORY_BUTTON = "💾 Save to my history"
+SAVE_HISTORY_NOTE = (
+    "Only the category, our label, the two badges and the plain summary are saved. "
+    "The words you pasted or said are never saved."
+)
+SAVED_HISTORY_LINE = "💾 **Saved to My history.** You can find it, or delete it, on **My account**."
+
 # The warning signs box in the result
 FLAGS_TITLE = "⚠️ Warning signs we noticed"
 NO_FLAGS_LINE = "We didn't notice any warning signs in this text. That alone doesn't make it safe."
@@ -352,6 +439,38 @@ HISTORY_SERIES_LABEL = "Which one?"
 START_YEAR_LABEL = "📅 Start year"
 RUN_LENGTH_LABEL = "For how long?"
 
+# ---------- My account: words ----------
+ACCOUNT_CONSENT = (
+    "I agree that Second Look saves my answers, the products I add, and summaries "
+    "of offers I check, so I can see them next time. I can download or delete "
+    "everything at any time."
+)
+ACCOUNT_INTRO = (
+    "An account is optional. Without one, every page still works. "
+    "With one, your answers and your products are waiting for you next time."
+)
+MY_HISTORY_TITLE = "🗂️ My history"
+MY_HISTORY_EMPTY = (
+    "You haven't saved any offer checks yet. After you check an offer, "
+    "press **💾 Save to my history** to keep a summary here."
+)
+DOWNLOAD_TITLE = "⬇️ Download my data"
+DOWNLOAD_TEXT = (
+    "One file with everything saved for your account: your answers, your products, "
+    "and your saved offer checks."
+)
+DOWNLOAD_BUTTON = "⬇️ Download my data"
+DOWNLOAD_FILE_NAME = "second-look-my-data.json"
+DELETE_ACCOUNT_TITLE = "🗑️ Delete my account"
+DELETE_ACCOUNT_TEXT = (
+    "This deletes your account and everything saved for it: your answers, your products "
+    "and your saved offer checks. It can't be undone. You may want to download your data first."
+)
+DELETE_CONFIRM_LABEL = "To confirm, type DELETE in capital letters"
+DELETE_ACCOUNT_BUTTON = "🗑️ Delete my account and everything saved"
+DELETE_CONFIRM_WORD = "DELETE"
+ACCOUNT_DELETED = "Your account and all your saved information have been deleted."
+
 # ---------- Safety cards (shown on Check an offer, Explore products and Compare) ----------
 
 HELP_CARD_TITLE = "☎️ Before a big decision"
@@ -395,9 +514,11 @@ def go_to(view_name):
 
 def start_over():
     """Runs when Start over is clicked: forget everything except
-    the page and the Demo replay switch."""
+    the page, the Demo replay switch, and the sign-in (if any).
+    Saved products and history stay in the account; they are loaded again when needed."""
+    keep = ("view", "replay_on", db.CLIENT_KEY, db.ACCOUNT_KEY)
     for key in list(st.session_state.keys()):
-        if key not in ("view", "replay_on"):
+        if key not in keep:
             del st.session_state[key]
     # A one-time flag so we can tell the person it worked
     st.session_state["just_cleared"] = True
@@ -409,6 +530,11 @@ def safe_text(text):
     return str(text).replace("$", "\\$")
 
 
+def safe_key(text):
+    """Letters, numbers and _ only, so it can be part of a button's key."""
+    return "".join(letter if letter.isalnum() else "_" for letter in str(text))
+
+
 def show_notice():
     """The educational notice at the top of every view, centered.
     The key "notice_top" lets styles.py draw its light box
@@ -418,7 +544,7 @@ def show_notice():
 
 
 def show_nav():
-    """Six page buttons with readable, two-line labels where needed."""
+    """Eight compact page buttons, with single-line labels on desktop."""
     # Scope these overrides to navigation so other controls keep their styles.
     st.markdown(
         """
@@ -432,44 +558,43 @@ def show_nav():
             inset: 0 0 auto 0 !important;
             width: 100% !important;
             max-width: none !important;
-            height: 6rem !important;
+            height: 64px !important;
             box-sizing: border-box !important;
             z-index: 1000000 !important;
             background: #fbfaf7 !important;
             border: 0 !important;
             border-bottom: 1px solid #dedfdc !important;
             border-radius: 0 !important;
-            padding: 0.75rem clamp(1rem, 4vw, 5rem) !important;
+            padding: 8px clamp(8px, 1.5vw, 24px) !important;
             margin: 0 !important;
             box-shadow: 0 2px 8px rgba(22, 35, 63, 0.04) !important;
-            overflow-x: auto !important;
+            overflow-x: hidden !important;
             overflow-y: hidden !important;
         }
         .st-key-main_nav [data-testid="stHorizontalBlock"] {
-            display: flex !important;
-            flex-direction: row !important;
-            flex-wrap: nowrap !important;
-            gap: 0.5rem !important;
+            display: grid !important;
+            grid-template-columns: 0.85fr 1.15fr 1.4fr 0.85fr 1.2fr 0.75fr 1.1fr 1.05fr !important;
+            gap: 4px !important;
             width: 100% !important;
-            max-width: 1440px !important;
+            max-width: none !important;
             margin: 0 auto !important;
         }
         .st-key-main_nav [data-testid="stColumn"] {
-            flex: 1 0 8rem !important;
-            min-width: 8rem !important;
+            min-width: 0 !important;
+            width: 100% !important;
         }
         .st-key-main_nav button {
             box-sizing: border-box !important;
             width: 100% !important;
-            height: 4.5rem !important;
-            min-height: 4.5rem !important;
-            padding: 0.5rem 0.75rem !important;
+            height: 48px !important;
+            min-height: 48px !important;
+            padding: 6px 4px !important;
             border: 1px solid transparent !important;
             border-radius: 8px !important;
             background: transparent !important;
             color: #536074 !important;
             box-shadow: none !important;
-            white-space: normal !important;
+            white-space: nowrap !important;
             overflow: visible !important;
             transition: background 150ms ease, color 150ms ease !important;
         }
@@ -493,16 +618,16 @@ def show_nav():
             min-width: 0 !important;
             height: auto !important;
             max-height: none !important;
-            white-space: normal !important;
+            white-space: nowrap !important;
             overflow: visible !important;
             text-overflow: clip !important;
             -webkit-line-clamp: unset !important;
             display: block !important;
             text-align: center !important;
             font-family: "Times New Roman", Times, serif !important;
-            font-size: 1.125rem !important;
+            font-size: clamp(12px, 1.1vw, 18px) !important;
             font-weight: 600 !important;
-            letter-spacing: 0.01em !important;
+            letter-spacing: 0 !important;
             line-height: 1.3 !important;
             color: inherit !important;
             margin: 0 !important;
@@ -511,10 +636,24 @@ def show_nav():
         [data-testid="stMainBlockContainer"],
         .main .block-container,
         .stMain .block-container {
-            padding-top: 6rem !important;
+            padding-top: 64px !important;
         }
         .st-key-notice_top {
             margin-top: 0 !important;
+        }
+        @media (max-width: 700px) {
+            .st-key-main_nav { height: 112px !important; }
+            .st-key-main_nav [data-testid="stHorizontalBlock"] {
+                grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+            }
+            .st-key-main_nav button [data-testid="stMarkdownContainer"],
+            .st-key-main_nav button [data-testid="stMarkdownContainer"] p {
+                font-size: 12px !important;
+            }
+            [data-testid="stMainBlockContainer"],
+            .main .block-container, .stMain .block-container {
+                padding-top: 112px !important;
+            }
         }
         @media (prefers-reduced-motion: reduce) {
             .st-key-main_nav button { transition: none !important; }
@@ -523,18 +662,12 @@ def show_nav():
         """,
         unsafe_allow_html=True,
     )
-    # Markdown hard breaks keep the full wording on two lines.
-    labels = {
-        "Your situation": "Your  \nsituation",
-        "Explore products": "Explore  \nproducts",
-        "Check an offer": "Check an  \noffer",
-    }
     current = st.session_state["view"]
     with st.container(key="main_nav"):
         columns = st.columns(len(VIEWS), gap="small")
         for number, view_name in enumerate(VIEWS):
             is_current = view_name == current
-            label = labels.get(view_name, view_name)
+            label = view_name
             if is_current:
                 label = f"**{label}**"
             with columns[number]:
@@ -546,7 +679,6 @@ def show_nav():
                     type="primary" if is_current else "secondary",
                     width="stretch",
                 )
-
 
 
 def show_heading():
@@ -793,6 +925,10 @@ def show_questions():
                 answers[question["key"]] = st.session_state[f"q_{question['key']}"]
             st.session_state["answers"] = answers
             st.session_state["editing_answers"] = False
+            # Signed in: also save them to the account. Guests: nothing is saved.
+            if db.is_signed_in():
+                ok, message = db.save_answers(answers)
+                st.session_state["save_note"] = (ok, message)
             st.rerun()  # draw the page again, now showing the summary
 
 
@@ -813,9 +949,22 @@ def show_answer_summary(answers):
             st.markdown(
                 f"Your answers add short notes under **{NOTES_TITLE}** on each product card."
             )
-            st.markdown(
-                "🔒 Your answers stay on this page only, until you close it or click **Start over**."
-            )
+            # Did saving to the account just work? Say so once, with an icon and words.
+            note = st.session_state.pop("save_note", None)
+            if note is not None:
+                ok, message = note
+                if ok:
+                    st.success(message, icon="✅")
+                else:
+                    st.warning(message, icon="⚠️")
+            if db.is_signed_in():
+                st.markdown(
+                    f"💾 Your answers are saved to your account ({safe_text(db.current_email())})."
+                )
+            else:
+                st.markdown(
+                    "🔒 Your answers stay on this page only, until you close it or click **Start over**."
+                )
             st.button(
                 "🧭 See the notes on Explore products",
                 key="goto_explore",
@@ -994,45 +1143,54 @@ def show_fit_notes(product):
         st.markdown(NOTES_DISCLAIMER)
 
 
+@st.dialog("Show me the numbers", width="large")
 def show_numbers(product, result):
-    """Card part 8: every fact, step and source behind the label."""
-    with st.expander("Show me the numbers", icon="🔢"):
-        # The facts from products.py
-        loss = product["worst_year_loss_pct"]
-        loss_text = "not known yet" if loss is None else f"{loss:g}%"
+    """One popup containing the product facts and quantitative risk details."""
+    st.markdown(f"### {safe_text(product['name'])}")
+    st.markdown("#### Product details")
+    # The facts from products.py
+    loss = product["worst_year_loss_pct"]
+    loss_text = "not known yet" if loss is None else f"{loss:g}%"
 
-        cost = product["yearly_cost_pct"]
-        cost_text = "Not known yet." if cost is None else f"{cost:g}% a year."
+    cost = product["yearly_cost_pct"]
+    cost_text = "Not known yet." if cost is None else f"{cost:g}% a year."
 
-        # Today's rate, only for products that have one
-        rate = todays_rate(product)
-        rate_part = f"**📡 {safe_text(rate)}**\n\n" if rate else ""
+    # Today's rate, only for products that have one
+    rate = todays_rate(product)
+    rate_part = f"**📡 {safe_text(rate)}**\n\n" if rate else ""
 
-        st.markdown(
-            f"**Worst year:** {safe_text(product['worst_year'])}\n\n"
-            f"**Loss in that year:** {loss_text}\n\n"
-            f"**What it might earn:** {safe_text(product['gain_note'])}\n\n"
-            + rate_part
-            + f"**Yearly cost:** {cost_text} {safe_text(product['cost_note'])}\n\n"
-            f"**Getting money out:** {safe_text(product['access_note'])}\n\n"
-            f"**Insurance:** {safe_text(product['insurance_note'])}"
+    st.markdown(
+        f"**Worst year:** {safe_text(product['worst_year'])}\n\n"
+        f"**Loss in that year:** {loss_text}\n\n"
+        f"**What it might earn:** {safe_text(product['gain_note'])}\n\n"
+        + rate_part
+        + f"**Yearly cost:** {cost_text} {safe_text(product['cost_note'])}\n\n"
+        f"**Getting money out:** {safe_text(product['access_note'])}\n\n"
+        f"**Insurance:** {safe_text(product['insurance_note'])}"
+    )
+
+    # Every step sentence from scoring.py
+    step_lines = ["**How we picked the label:**", ""]
+    for step in result["steps"]:
+        step_lines.append(f"- {safe_text(step)}")
+    st.markdown("\n".join(step_lines))
+
+    # Every source, as a link with its as-of date
+    source_lines = ["**Sources:**", ""]
+    for source in product["sources"]:
+        source_lines.append(
+            f"- [{safe_text(source['label'])}]({source['url']}), as of {source['as_of']}"
         )
+    if not product["sources"]:
+        source_lines.append("- No sources yet.")
+    st.markdown("\n".join(source_lines))
 
-        # Every step sentence from scoring.py
-        step_lines = ["**How we picked the label:**", ""]
-        for step in result["steps"]:
-            step_lines.append(f"- {safe_text(step)}")
-        st.markdown("\n".join(step_lines))
-
-        # Every source, as a link with its as-of date
-        source_lines = ["**Sources:**", ""]
-        for source in product["sources"]:
-            source_lines.append(
-                f"- [{safe_text(source['label'])}]({source['url']}), as of {source['as_of']}"
-            )
-        if not product["sources"]:
-            source_lines.append("- No sources yet.")
-        st.markdown("\n".join(source_lines))
+    st.divider()
+    st.markdown("#### Risk in numbers")
+    show_product_risk(product, inline=True)
+    st.divider()
+    if st.button("Close", key="close_product_numbers", width="stretch"):
+        st.rerun()
 
 
 def toggle_compare(product_key):
@@ -1117,7 +1275,8 @@ def show_explore():
                 show_badges(result)
                 show_worst_year(product, result)
                 show_fit_notes(product)
-                show_numbers(product, result)
+                if st.button("Show me the numbers", key=f"numbers_{product['key']}", width="stretch"):
+                    show_numbers(product, result)
                 show_compare_box(product)
 
     # The scam card, the help card and "Something looks wrong?"
@@ -1330,6 +1489,9 @@ def show_compare():
             st.markdown(NOTES_DISCLAIMER)
         # The fees chart (charts.py), under the table.
         show_fees_chart(rows)
+        for product, _ in rows:
+            st.markdown(f"**{safe_text(product['name'])}**")
+            show_product_risk(product)
 
     # The scam card, the help card and "Something looks wrong?"
     show_safety_cards()
@@ -1505,7 +1667,7 @@ def yes_no(value):
 
 
 def costs_words(costs):
-    """the AI's cost facts as one plain line."""
+    """The AI's cost facts as one plain line."""
     parts = []
     yearly = as_number(costs.get("value_pct"))
     if yearly is not None:
@@ -1519,7 +1681,7 @@ def costs_words(costs):
 
 
 def promised_words(promised):
-    """the AI's promised-return facts as one plain line."""
+    """The AI's promised-return facts as one plain line."""
     value = as_number(promised.get("value_pct"))
     if value is None:
         return "No number promised"
@@ -1688,6 +1850,45 @@ def show_source_line(source):
         )
 
 
+# ---------- Check an offer: saving to My history ----------
+
+def save_check_to_history(record, offer_text):
+    """Runs when "Save to my history" is clicked.
+    record holds only the category, label, badges and plain summary.
+    offer_text stays on this page only, so we know this check was saved;
+    it is never sent to the database."""
+    ok, message = db.save_offer_check(record)
+    st.session_state["offer_save_note"] = (offer_text, ok, message)
+    if ok:
+        st.session_state.setdefault("saved_offer_texts", []).append(offer_text)
+        st.session_state.pop("history_rows", None)  # My history loads fresh next time
+
+
+def show_save_to_history(answer, product, result):
+    """The "Save to my history" button, for signed-in people only."""
+    if not (db.ready() and db.is_signed_in()):
+        return
+    offer_text = current_words().strip()
+    summary = answer.get("plain_summary")
+    record = {
+        "category": product["name"] if product is not None else "unknown",
+        "label": tier_label(result["tier"]),
+        "access_badge": result["access_badge"],
+        "cost_badge": result["cost_badge"],
+        "plain_summary": summary if isinstance(summary, str) else "",
+    }
+
+    if offer_text in st.session_state.get("saved_offer_texts", []):
+        st.markdown(SAVED_HISTORY_LINE)
+    else:
+        st.button(SAVE_HISTORY_BUTTON, key="save_offer_history", on_click=save_check_to_history,
+                  args=(record, offer_text), width="stretch")
+        note = st.session_state.get("offer_save_note")
+        if note is not None and note[0] == offer_text and not note[1]:
+            st.warning(note[2], icon="⚠️")
+    st.markdown(f"🔒 {SAVE_HISTORY_NOTE}")
+
+
 def show_offer_card(answer, source):
     """Step 3: the result card, in the order people need it:
     our label, what the offer is in plain words, the warning signs,
@@ -1742,6 +1943,11 @@ def show_offer_card(answer, source):
         # 6. The details, in two boxes you can open
         show_offer_facts(answer)
         show_offer_numbers(result, where_from, answer)
+        if product is not None and tier not in ("off_map", "not_rated"):
+            show_product_risk(product)
+
+        # 7. Signed in: save a summary (never the pasted words) to My history
+        show_save_to_history(answer, product, result)
 
 
 # ---------- Check an offer: the three steps, one under another ----------
@@ -1751,7 +1957,7 @@ def check_words(samples, demo_answers):
     1. Demo replay and the words are OFFER 1: the AI's real saved run.
     2. A sample with a saved, hand-written reading.
     3. Demo replay is on: stop here (no internet calls).
-    4. Otherwise: a live call to the AI.
+    4. Otherwise: a live call to the AI (Grok).
     Problems show right here, next to the step."""
     text = current_words().strip()
     # Readings we already have, by offer text, so the AI is never asked twice.
@@ -1772,7 +1978,7 @@ def check_words(samples, demo_answers):
 
     demo_answer = find_demo_answer(text, samples, demo_answers)
     if demo_answer is not None:
-        # A sample offer in demo mode: use the saved reading, no the AI call.
+        # A sample offer in demo mode: use the saved reading, no AI call.
         cache[text] = {"answer": demo_answer, "source": "demo"}
         return
 
@@ -2059,6 +2265,452 @@ def show_history():
     show_history_note(history)
 
 
+# ---------- My account (optional) ----------
+# Guests can use every other page without an account. Nothing is saved for guests.
+# All the Supabase calls live in db.py.
+
+def clean_saved_answers(saved):
+    """Saved answers, but only if every one is a real choice from QUESTIONS.
+    None if anything is missing or odd, so nothing strange reaches the page."""
+    if not isinstance(saved, dict):
+        return None
+    answers = {}
+    for question in QUESTIONS:
+        value = saved.get(question["key"])
+        if value not in question["options"]:
+            return None
+        answers[question["key"]] = value
+    return answers
+
+
+def load_account_answers():
+    """After signing in: put the saved answers into Your situation.
+    If the account has none yet, keep whatever is on the page now."""
+    saved = clean_saved_answers(db.load_answers())
+    if saved is None:
+        return
+    st.session_state["answers"] = saved
+    st.session_state["editing_answers"] = False
+    # The question boxes start over from the saved answers next time.
+    for question in QUESTIONS:
+        st.session_state.pop(f"q_{question['key']}", None)
+
+
+def set_account_message(ok, message):
+    """Remember a message to show on My account after the page redraws."""
+    st.session_state["account_message"] = (ok, message)
+
+
+def forget_personal_data():
+    """Clear this person's answers, products and history from the page,
+    so the next person at this computer sees nothing of theirs."""
+    for key in ("answers", "editing_answers", "save_note", "history_rows",
+                "saved_offer_texts", "offer_save_note", "delete_confirm"):
+        st.session_state.pop(key, None)
+    for question in QUESTIONS:
+        st.session_state.pop(f"q_{question['key']}", None)
+    my_products.forget_all()
+
+
+def do_sign_in():
+    """Validate required credentials, then sign in and report the result."""
+    email = st.session_state.get("signin_email", "").strip()
+    password = st.session_state.get("signin_password", "")
+    st.session_state["signin_attempted"] = True
+    if not email or len(password) < 8:
+        return
+    ok, message = db.sign_in(email, password)
+    st.session_state["signin_password"] = ""
+    st.session_state["signin_attempted"] = False
+    if ok:
+        st.session_state["signin_attempted"] = False
+        load_account_answers()
+        my_products.reload_holdings()
+        st.session_state.pop("history_rows", None)
+        set_account_message(True, "You have successfully signed in. Welcome back!")
+    else:
+        set_account_message(False, message or "Sign-in failed. Please check your email and password and try again.")
+
+
+def do_sign_up():
+    """Validate both passwords before sending an account creation request."""
+    email = st.session_state.get("signup_email", "").strip()
+    password = st.session_state.get("signup_password", "")
+    again = st.session_state.get("signup_password_again", "")
+    agreed = st.session_state.get("signup_agree", False)
+    minimum = max(8, db.MIN_PASSWORD_LENGTH)
+
+    st.session_state["signup_attempted"] = True
+    if not email or len(password) < minimum or password != again or not agreed:
+        return
+
+    ok, message = db.sign_up(email, password)
+    st.session_state["signup_password"] = ""
+    st.session_state["signup_password_again"] = ""
+    st.session_state["signup_attempted"] = False
+    if ok:
+        st.session_state["signup_attempted"] = False
+        if db.is_signed_in():
+            if st.session_state.get("answers"):
+                db.save_answers(st.session_state["answers"])
+            set_account_message(True, "Your account has been created successfully, and you are now signed in.")
+        else:
+            # Keep the provider's instructions, including email confirmation.
+            details = message or "If email confirmation is required, check your inbox before signing in."
+            set_account_message(True, f"Your account has been created successfully. {details}")
+    else:
+        set_account_message(False, message or "We could not create your account. Please try again.")
+
+
+def do_sign_out():
+    """Runs when Sign out is clicked."""
+    db.sign_out()
+    forget_personal_data()
+    set_account_message(True, "You are signed out. Nothing from your account is on this page now.")
+
+
+def do_delete_check(check_id):
+    """Runs when Delete is clicked on one saved check in My history."""
+    ok, message = db.delete_offer_check(check_id)
+    st.session_state.pop("history_rows", None)
+    set_account_message(ok, message)
+
+
+def do_delete_account():
+    """Runs when Delete my account is clicked: only if DELETE was typed."""
+    typed = st.session_state.get("delete_confirm", "").strip()
+    if typed != DELETE_CONFIRM_WORD:
+        set_account_message(
+            False, "To delete your account, type DELETE in capital letters in the box first."
+        )
+        return
+    ok, message = db.delete_account()
+    if not ok:
+        set_account_message(False, message)
+        return
+    forget_personal_data()
+    set_account_message(True, ACCOUNT_DELETED)
+
+
+def show_account_message():
+    """The message from the last button press, with an icon and words."""
+    note = st.session_state.pop("account_message", None)
+    if note is None:
+        return
+    ok, message = note
+    if ok:
+        st.success(message, icon="✅")
+    else:
+        st.error(message, icon="😕")
+
+
+def show_account_styles():
+    """Big, clear email and password boxes, and a big download button (only on this page)."""
+    st.markdown(
+        """
+        <style>
+        .stApp [data-testid="stTextInput"] [data-testid="stWidgetLabel"] p {
+            font-size: 24px !important;
+            font-weight: 700;
+            color: var(--navy) !important;
+        }
+        .stApp [data-testid="stTextInput"] input {
+            font-size: 22px !important;
+            min-height: 56px;
+            color: var(--text) !important;
+            background-color: var(--card) !important;
+        }
+        .stApp [data-testid="stTextInput"] [data-baseweb="input"] {
+            border: 2px solid var(--text-secondary) !important;
+            border-radius: 12px !important;
+        }
+        .stApp [data-testid="stCheckbox"] label p {
+            font-weight: 400;
+            font-size: 22px !important;
+        }
+        /* The download button looks like every other big button */
+        .stApp [data-testid="stDownloadButton"] > button {
+            min-height: 60px;
+            width: 100%;
+            padding: 10px 16px;
+            background-color: var(--navy);
+            color: var(--white);
+            border: 3px solid var(--navy);
+            border-radius: 12px;
+            white-space: normal;
+        }
+        .stApp [data-testid="stDownloadButton"] > button * {
+            color: inherit !important;
+        }
+        .stApp [data-testid="stDownloadButton"] > button p {
+            font-size: 24px !important;
+            font-weight: 700;
+            margin: 0;
+        }
+        .stApp [data-testid="stDownloadButton"] > button:hover {
+            background-color: var(--navy-hover);
+            border-color: var(--navy-hover);
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def show_signed_out():
+    """One focused account panel, with only the chosen form visible."""
+    with st.container(key="account_intro_full"):
+        st.markdown("Accounts are optional. Create one to save your answers and products for next time.")
+    show_account_message()
+    st.markdown(
+        """
+        <style>
+        .stApp .st-key-account_intro_full,
+        .stApp .st-key-account_intro_full [data-testid="stMarkdownContainer"],
+        .stApp .st-key-account_intro_full p {
+            width: 100% !important;
+            max-width: none !important;
+        }
+        .stApp .st-key-account_intro_full p {
+            white-space: normal !important;
+        }
+        .stApp .st-key-account_auth {
+            width: 100% !important;
+            max-width: none !important;
+            margin: 1rem 0 2rem !important;
+            padding: clamp(1.25rem, 3vw, 2rem) !important;
+            box-sizing: border-box !important;
+            background: #ffffff !important;
+            border: 1px solid #d9dde4 !important;
+            border-radius: 16px !important;
+            box-shadow: 0 8px 30px rgba(23,36,62,0.05) !important;
+        }
+        .stApp .st-key-account_auth [data-testid="stVerticalBlock"] {
+            gap: 1rem !important;
+        }
+        .stApp .st-key-account_auth h3 {
+            font-family: "Times New Roman", Times, serif !important;
+            font-size: 1.75rem !important;
+            margin: 0 !important;
+            padding: 0 !important;
+        }
+        .stApp .st-key-account_auth [data-testid="stTextInput"] {
+            margin: 0 !important;
+            padding: 0 !important;
+            min-height: 0 !important;
+        }
+        .stApp .st-key-account_auth [data-testid="stWidgetLabel"] p {
+            font-size: 1.1rem !important;
+            line-height: 1.4 !important;
+            margin: 0 0 0.35rem !important;
+            color: #17243e !important;
+        }
+        .stApp .st-key-account_auth [data-baseweb="input"] {
+            display: flex !important;
+            min-height: 54px !important;
+            height: 54px !important;
+            border: 1px solid #8995a7 !important;
+            border-radius: 8px !important;
+            background: #ffffff !important;
+            overflow: hidden !important;
+        }
+        .stApp .st-key-account_auth [data-baseweb="base-input"] {
+            background: #ffffff !important;
+        }
+        .stApp .st-key-account_auth [data-testid="stTextInput"] input {
+            font-size: 1.1rem !important;
+            min-height: 0 !important;
+            height: 52px !important;
+            padding: 0.7rem 0.85rem !important;
+            box-sizing: border-box !important;
+            color: #17243e !important;
+            background: #ffffff !important;
+        }
+        .stApp .st-key-account_auth [data-baseweb="input"]:focus-within {
+            border-color: #17243e !important;
+            outline: 2px solid #c1cad7 !important;
+            outline-offset: 2px !important;
+        }
+        .stApp .st-key-account_auth [role="radiogroup"] {
+            display: flex !important;
+            flex-direction: row !important;
+            flex-wrap: wrap !important;
+            gap: 0.5rem !important;
+            width: 100% !important;
+        }
+        .stApp .st-key-account_auth [role="radiogroup"] > label {
+            flex: 1 1 10rem !important;
+            width: auto !important;
+            margin: 0 !important;
+            padding: 0.65rem !important;
+            min-height: 48px !important;
+            border-radius: 8px !important;
+        }
+        .stApp .st-key-account_auth [data-testid="stCheckbox"] p {
+            font-size: 1rem !important;
+            line-height: 1.5 !important;
+        }
+        .stApp .st-key-account_auth [data-testid="stButton"] button {
+            min-height: 52px !important;
+            border-radius: 8px !important;
+            margin: 0 !important;
+        }
+        .stApp .st-key-account_auth [data-testid="stButton"] button p {
+            font-size: 1.15rem !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    with st.container(key="account_auth"):
+        mode = st.radio(
+            "Account action", ["Sign in", "Create account"],
+            key="account_auth_mode", horizontal=True,
+            label_visibility="collapsed",
+        )
+        if mode == "Sign in":
+            st.markdown("### Welcome back")
+            st.caption("Sign in to access your saved products and history.")
+            if st.session_state.get("signin_attempted") and not st.session_state.get("signin_email", "").strip():
+                st.warning("Please enter your email.")
+            st.text_input("Email", key="signin_email", autocomplete="email",
+                          placeholder="you@example.com")
+            if st.session_state.get("signin_attempted") and len(st.session_state.get("signin_password", "")) < 8:
+                st.warning("Please enter a password with at least 8 characters.")
+            st.text_input("Password", key="signin_password", type="password",
+                          autocomplete="current-password", placeholder="Enter your password")
+            st.button("Sign in", key="signin_button", on_click=do_sign_in,
+                      type="primary", width="stretch")
+        else:
+            st.markdown("### Create your account")
+            st.caption("Save your products and return to your offer history.")
+            attempted = st.session_state.get("signup_attempted", False)
+            if attempted and not st.session_state.get("signup_email", "").strip():
+                st.warning("Please enter your email.")
+            st.text_input("Email", key="signup_email", autocomplete="email",
+                          placeholder="you@example.com")
+            password = st.session_state.get("signup_password", "")
+            confirmation = st.session_state.get("signup_password_again", "")
+            minimum = max(8, db.MIN_PASSWORD_LENGTH)
+            if attempted and len(password) < minimum:
+                st.warning(f"Your password must be at least {minimum} characters long.")
+            st.text_input("Password", key="signup_password", type="password",
+                          autocomplete="new-password",
+                          help=f"Use at least {max(8, db.MIN_PASSWORD_LENGTH)} characters.",
+                          placeholder=f"At least {max(8, db.MIN_PASSWORD_LENGTH)} characters")
+            if attempted and not confirmation:
+                st.warning("Please enter your password again to confirm it.")
+            elif attempted and password != confirmation:
+                st.warning("Your passwords do not match. Enter the same password in both fields.")
+            st.text_input("Confirm password", key="signup_password_again",
+                          type="password", autocomplete="new-password",
+                          placeholder="Enter your password again")
+            if attempted and not st.session_state.get("signup_agree", False):
+                st.warning("Please tick the agreement box before creating an account.")
+            st.checkbox(ACCOUNT_CONSENT, key="signup_agree")
+            st.button("Create account", key="signup_button", on_click=do_sign_up,
+                      type="primary", width="stretch")
+        st.divider()
+        st.caption(PRIVACY_NOTICE)
+
+
+def date_words_from(value):
+    """A saved date and time from Supabase, as words like "Oct 25, 2026"."""
+    try:
+        when = datetime.datetime.fromisoformat(str(value))
+    except ValueError:
+        return "an unknown date"
+    return f"{when.strftime('%b')} {when.day}, {when.year}"
+
+
+def show_my_history():
+    """My history: every saved offer check, newest first, each with Delete."""
+    if "history_rows" not in st.session_state:
+        rows, error = db.list_offer_checks()
+        st.session_state["history_rows"] = rows
+        if error:
+            st.warning(error, icon="⚠️")
+    rows = st.session_state["history_rows"]
+
+    with st.container(key="card_my_history"):
+        st.markdown(f"### {MY_HISTORY_TITLE}")
+        if not rows:
+            st.markdown(MY_HISTORY_EMPTY)
+            return
+        count = len(rows)
+        st.markdown(f"You have **{count} saved {'check' if count == 1 else 'checks'}**, newest first.")
+        for row in rows:
+            with st.container(key=f"notes_check_{safe_key(row['id'])}"):
+                st.markdown(
+                    f"#### 🔎 {safe_text(row.get('label') or 'No label')}\n\n"
+                    f"**Checked on:** {date_words_from(row.get('created_at'))}\n\n"
+                    f"**We compared it to:** {safe_text(row.get('category') or 'unknown')}\n\n"
+                    f"**Getting money out:** {safe_text(row.get('access_badge') or 'Unknown')} · "
+                    f"**Cost:** {safe_text(row.get('cost_badge') or 'Unknown')}"
+                )
+                if row.get("plain_summary"):
+                    st.markdown(f"**In plain words:** {safe_text(row['plain_summary'])}")
+                st.button("🗑️ Delete this check", key=f"delete_check_{safe_key(row['id'])}",
+                          on_click=do_delete_check, args=(row["id"],), width="stretch")
+
+
+def show_download_data():
+    """Download my data: one JSON file with the profile, holdings and saved checks."""
+    with st.container(key="card_download"):
+        st.markdown(f"### {DOWNLOAD_TITLE}")
+        st.markdown(DOWNLOAD_TEXT)
+        data, error = db.export_my_data()
+        if error:
+            st.warning(error, icon="⚠️")
+            return
+        st.download_button(
+            DOWNLOAD_BUTTON,
+            data=json.dumps(data, indent=2, ensure_ascii=False, default=str),
+            file_name=DOWNLOAD_FILE_NAME,
+            mime="application/json",
+            key="download_my_data",
+            width="stretch",
+        )
+
+
+def show_delete_account():
+    """Delete my account: the person types DELETE, then presses the button."""
+    with st.container(key="card_delete_account"):
+        st.markdown(f"### {DELETE_ACCOUNT_TITLE}")
+        st.warning(DELETE_ACCOUNT_TEXT, icon="⚠️")
+        st.text_input(DELETE_CONFIRM_LABEL, key="delete_confirm", max_chars=10)
+        st.button(DELETE_ACCOUNT_BUTTON, key="delete_account_button",
+                  on_click=do_delete_account, width="stretch")
+
+
+def show_signed_in():
+    """Who is signed in, My history, Download my data and Delete my account."""
+    show_account_message()
+    with st.container(key="card_account"):
+        st.markdown(f"### 👤 Signed in as {safe_text(db.current_email())}")
+        st.info(PRIVACY_NOTICE, icon="🔒")
+        st.button("📋 Go to My products", key="account_go_products", on_click=go_to,
+                  args=("My products",), type="primary", width="stretch")
+        st.button("🚪 Sign out", key="signout_button", on_click=do_sign_out, width="stretch")
+
+    show_my_history()
+    show_download_data()
+    show_delete_account()
+
+
+def show_account():
+    """The My account view."""
+    if not db.ready():
+        st.info(db.NO_SETUP, icon="🔌")
+        st.info(PRIVACY_NOTICE, icon="🔒")
+        return
+    show_account_styles()
+    if db.is_signed_in():
+        show_signed_in()
+    else:
+        show_signed_out()
+
+
 # ---------- Build the page, top to bottom ----------
 
 # Start on Welcome the first time (or if the saved view is unknown)
@@ -2088,6 +2740,14 @@ elif st.session_state["view"] == "Check an offer":
     show_check_offer()
 elif st.session_state["view"] == "History":
     show_history()
+elif st.session_state["view"] == "My products":
+    # The cards reuse this file's tier heading, badges, voice and help card.
+    my_products.show_my_products(
+        go_to, show_tier_heading, show_badges,
+        start_speaking, show_voice, show_help_card,
+    )
+elif st.session_state["view"] == "My account":
+    show_account()
 else:
     show_coming_soon()
 

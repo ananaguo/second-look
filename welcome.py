@@ -6,6 +6,7 @@
 #   4. "Common questions", with the voice card beside it
 # app.py calls show_welcome(). All the styling lives in styles.py.
 # The labels themselves come from TIERS in products.py, never from here.
+# PRIVACY_NOTICE lives here too, so Welcome and My account always say the same thing.
 
 import html
 
@@ -26,6 +27,16 @@ from voice_helper import number_words
 #
 # ==========================================================================
 # ==========================================================================
+
+# The privacy notice, shown on Welcome and on My account (the same words in both places).
+PRIVACY_NOTICE = (
+    "Using Second Look without an account saves nothing. If you create an account, "
+    "we save your answers, the products you add, and summaries of offers you check, "
+    "in a database set up so only you can see them. We never ask for account numbers "
+    "or Social Security numbers. You can download or delete everything at any time. "
+    "When you check an offer or ask for an explanation, the text is sent to "
+    "an external AI service for analysis; voice recordings are sent to Cartesia for processing."
+)
 
 HEADLINE = "Know what you're being offered."
 SUBHEADLINE = (
@@ -65,7 +76,7 @@ FAQ = [
     {"question": "What do the labels mean?", "answer": ""},
     {"question": "Where do the numbers come from?", "answer": ""},
     {"question": "Is this financial advice?", "answer": ""},
-    {"question": "Do you save my information?", "answer": ""},
+    {"question": "Do you save my information?", "answer": PRIVACY_NOTICE},
 ]
 MISSING_ANSWER = "📝 This answer is still being written."
 
@@ -139,7 +150,7 @@ def welcome_words():
         f"Welcome to Second Look. {HEADLINE} {SUBHEADLINE} "
         f"{STEPS_TITLE}. {' '.join(step_parts)} "
         f"{TIERS_TITLE}, from calmest to wildest: {tier_list}. "
-        "Nothing is saved. When you close this page, everything you typed is gone."
+        f"{PRIVACY_NOTICE}"
     )
 
 
@@ -208,40 +219,148 @@ def show_steps():
 # ---------- Part 3: the six labels ----------
 
 def tiers_html():
-    """The six tiers in order, each with its number, icon, name and wave count.
-    The icon is hidden from screen readers, because the words say the same thing."""
-    items = []
+    """Native disclosure cards: flip without scripts, API calls or reruns."""
+    cards = []
     for tier in tiers_in_order():
-        items.append(
-            "<li>"
-            f'<p class="tier-number">Tier {tier["number"]} of {len(TIERS)}</p>'
-            f'<p class="tier-icon" aria-hidden="true">{html.escape(tier["icon"])}</p>'
-            f'<p class="tier-name">{html.escape(tier["name"])}</p>'
-            f'<p class="tier-waves">{html.escape(wave_words(tier))}</p>'
-            "</li>"
+        name = html.escape(tier["name"])
+        sentence = html.escape(tier["sentence"])
+        rule = html.escape(tier["rule"])
+        cards.append(
+            '<li class="sl-flip-item"><details class="sl-flip-card">'
+            '<summary class="sl-flip-toggle">'
+            '<span class="sl-flip-front">'
+            f'<span class="sl-flip-kicker">Tier {tier["number"]} of {len(TIERS)}</span>'
+            f'<span class="sl-flip-icon" aria-hidden="true">{html.escape(tier["icon"])}</span>'
+            f'<span class="sl-flip-name">{name}</span>'
+            f'<span class="sl-flip-waves">{html.escape(wave_words(tier))}</span>'
+            '<span class="sl-flip-hint">Click to learn more</span></span>'
+            '<span class="sl-flip-back" aria-hidden="true">'
+            f'<span class="sl-flip-back-name">{name}</span>'
+            f'<span class="sl-flip-description">{sentence}</span>'
+            f'<span class="sl-flip-rule"><strong>How it is classified</strong><br>{rule}</span>'
+            '<span class="sl-flip-hint">Click to turn back</span></span>'
+            '</summary>'
+            f'<div class="sl-flip-sr">{sentence} Classification rule: {rule}</div>'
+            '</details></li>'
         )
-    return f'<ol class="tier-grid" role="list">{"".join(items)}</ol>'
+    return '<ul class="sl-flip-grid" aria-label="Six financial risk labels">' + ''.join(cards) + '</ul>'
 
 
 def show_tiers():
-    """The white full-width band with the six labels."""
-    # The key starts with "band_light_", so styles.py makes it a full-width white band.
+    """Six responsive, reversible flashcards using the canonical tier data."""
     with st.container(key="band_light_tiers"):
         st.markdown(f"## {TIERS_TITLE}")
         st.markdown(TIERS_INTRO)
+        st.caption("Click or tap a card to learn about its label. Click again to turn it back. Keyboard: Tab to a card, then Enter or Space.")
+        st.markdown(
+            """
+            <style>
+            .stApp .st-key-tier_note,
+            .stApp .st-key-tier_note [data-testid="stCaptionContainer"],
+            .stApp .st-key-tier_note [data-testid="stMarkdownContainer"],
+            .stApp .st-key-tier_note p {
+                width: 100% !important;
+                max-width: none !important;
+                box-sizing: border-box !important;
+            }
+            .stApp .st-key-tier_note p {
+                white-space: normal !important;
+            }
+            .stApp .sl-flip-grid {
+                display: grid;
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+                gap: 20px;
+                width: 100%;
+                max-width: none;
+                padding: 0;
+                margin: 24px 0;
+                list-style: none;
+            }
+            .stApp .sl-flip-item { min-width: 0; margin: 0; padding: 0; list-style: none; }
+            .stApp .sl-flip-card { perspective: 1200px; border: 0; padding: 0; }
+            .stApp .sl-flip-toggle {
+                position: relative;
+                display: block;
+                height: 390px;
+                padding: 0;
+                margin: 0;
+                border: 0;
+                border-radius: 14px;
+                cursor: pointer;
+                list-style: none;
+                transform-style: preserve-3d;
+                transition: transform 450ms ease;
+                font-family: "Times New Roman", Times, serif;
+            }
+            .stApp .sl-flip-toggle::-webkit-details-marker { display: none; }
+            .stApp .sl-flip-toggle::marker { content: ""; }
+            .stApp .sl-flip-toggle:focus-visible {
+                outline: 3px solid #a7834c;
+                outline-offset: 5px;
+            }
+            .stApp .sl-flip-card[open] > .sl-flip-toggle { transform: rotateY(180deg); }
+            .stApp .sl-flip-front, .stApp .sl-flip-back {
+                position: absolute;
+                inset: 0;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                gap: 14px;
+                padding: 26px;
+                box-sizing: border-box;
+                border: 1px solid #d8dde5;
+                border-radius: 14px;
+                backface-visibility: hidden;
+                -webkit-backface-visibility: hidden;
+                text-align: center;
+                box-shadow: 0 4px 16px rgba(20,33,61,0.05);
+                overflow-y: auto;
+            }
+            .stApp .sl-flip-front { background: #faf9f6; color: #14213d; }
+            .stApp .sl-flip-back { background: #14213d; color: #ffffff; transform: rotateY(180deg); }
+            .stApp .sl-flip-kicker, .stApp .sl-flip-waves { font-size: 17px; line-height: 1.4; }
+            .stApp .sl-flip-icon { font-size: 30px; line-height: 1.4; }
+            .stApp .sl-flip-name { font-size: clamp(24px, 2vw, 32px); font-weight: 700; line-height: 1.2; }
+            .stApp .sl-flip-back-name { font-size: 25px; font-weight: 700; line-height: 1.2; color: #ffffff; }
+            .stApp .sl-flip-description, .stApp .sl-flip-rule { font-size: 19px; line-height: 1.45; color: #ffffff; }
+            .stApp .sl-flip-rule { padding-top: 12px; border-top: 1px solid #59667d; }
+            .stApp .sl-flip-rule strong { color: #ffffff; }
+            .stApp .sl-flip-hint { font-size: 15px; line-height: 1.4; text-decoration: underline; text-underline-offset: 3px; }
+            .stApp .sl-flip-sr {
+                position: absolute; width: 1px; height: 1px; padding: 0;
+                margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+            }
+            @media (max-width: 1000px) {
+                .stApp .sl-flip-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            }
+            @media (max-width: 600px) {
+                .stApp .sl-flip-grid { grid-template-columns: minmax(0, 1fr); }
+            }
+            @media (prefers-reduced-motion: reduce) {
+                .stApp .sl-flip-toggle { transition: none; }
+            }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
         st.markdown(tiers_html(), unsafe_allow_html=True)
+        with st.container(key="tier_note"):
+            st.caption("Labels describe product categories, not predictions. Review costs, access restrictions and the numbers before making a decision.")
 
 
 # ---------- Part 4: Common questions ----------
 
 def show_faq():
-    """Each question opens to show its answer."""
+    """Each question opens to show its answer, and the privacy notice below them,
+    always in view, so nobody has to open anything to read it."""
     with st.container(key="section_faq"):
         st.markdown(f"## {FAQ_TITLE}")
         for item in FAQ:
             with st.expander(item["question"]):
                 answer = item["answer"].strip()
                 st.markdown(safe_text(answer) if answer else MISSING_ANSWER)
+        st.info(PRIVACY_NOTICE, icon="🔒")
 
 
 # ---------- The whole Welcome view ----------

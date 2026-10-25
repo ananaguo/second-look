@@ -406,3 +406,12 @@ PRODUCTS = [
 # ==========================================================================
 # END OF EDIT HERE SECTION
 # ==========================================================================
+
+# Historical series suitable for illustrating these product categories.
+# These are benchmarks, not verified returns of an individual offered product.
+RISK_BENCHMARKS = {
+    "sp500": {"series": "stocks", "label": "U.S. stock-market historical benchmark",
+              "note": "Benchmark returns, not the return history of a specific fund. Fees and tracking differences are excluded."},
+    "tbill": {"series": "tbills", "label": "Treasury-bill historical benchmark",
+              "note": "Annual returns from a Treasury-bill investment strategy, not the price risk of one bill held to maturity. Zero historical nominal losses do not mean zero inflation or early-sale risk."},
+}

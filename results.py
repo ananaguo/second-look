@@ -26,18 +26,18 @@ OFFER_CLOSING_LINE = (
 )
 
 
-# ---------- Reading Claude's answer safely ----------
-# The prompt tells Claude to write "unknown" whenever the offer doesn't say something.
+# ---------- Reading claude's answer safely ----------
+# The prompt tells claude to write "unknown" whenever the offer doesn't say something.
 # checks.py has already checked every quote before these helpers see the answer.
 
 def get_part(answer, key):
-    """One part of Claude's answer, as a dictionary. Empty if it is missing."""
+    """One part of claude's answer, as a dictionary. Empty if it is missing."""
     part = answer.get(key)
     return part if isinstance(part, dict) else {}
 
 
 def is_quoted(part):
-    """True if Claude gave a real quote from the offer.
+    """True if claude gave a real quote from the offer.
     An empty quote or "unknown" does not count."""
     if not isinstance(part, dict):
         return False
@@ -46,7 +46,7 @@ def is_quoted(part):
 
 
 def as_number(value):
-    """A number from Claude's answer, like 1.3 or "1.3%".
+    """A number from claude's answer, like 1.3 or "1.3%".
     None if it isn't a number (for example "unknown")."""
     if isinstance(value, bool):  # True and False are not numbers here
         return None
@@ -74,7 +74,7 @@ def yes_no_unknown(value):
 
 
 def access_word(part):
-    """Claude's access value in lowercase, like "locked_years". Empty if missing."""
+    """claude's access value in lowercase, like "locked_years". Empty if missing."""
     value = part.get("value")
     return value.strip().lower() if isinstance(value, str) else ""
 

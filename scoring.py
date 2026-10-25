@@ -1,6 +1,6 @@
 # scoring.py
 # This is the ONE place where a product's tier is decided.
-# Claude never picks the tier. This file does it with simple, fixed math.
+# claude never picks the tier. This file does it with simple, fixed math.
 # It also holds the four simple rules for the "Worth thinking about" notes.
 
 from products import TIERS

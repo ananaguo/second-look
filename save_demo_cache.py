@@ -1,7 +1,7 @@
 # save_demo_cache.py
 # A one-time script that records a real run for "Demo replay (no internet needed)".
-# It reads OFFER 1 live with Claude, then saves into data/demo_cache/:
-#   offer1_result.json   Claude's real reading of OFFER 1
+# It reads OFFER 1 live with claude, then saves into data/demo_cache/:
+#   offer1_result.json   claude's real reading of OFFER 1
 #   offer1_summary.wav   the voice for "Listen to the result"
 #   read_<product>.wav   the voice for each product card's "Read aloud"
 #   welcome.wav          the voice for "Hear this page" on Welcome
@@ -9,7 +9,7 @@
 #
 # Run it once, with the internet on, from the project folder:
 #   python save_demo_cache.py
-# It uses API credits: one Claude call and about 14 short Cartesia calls.
+# It uses API credits: one claude call and about 14 short Cartesia calls.
 # Keys are read only from .streamlit/secrets.toml (through st.secrets).
 # (Streamlit may print "No runtime found" warnings. That is normal here.)
 
@@ -78,7 +78,7 @@ def main():
         print("  Stopped: OFFER 1 was not found in data/sample_offers.md.")
         return 1
 
-    print("Step 2 of 4: asking Claude to read OFFER 1 (live)...")
+    print("Step 2 of 4: asking claude to read OFFER 1 (live)...")
     product_names = [product["name"] for product in PRODUCTS]
     answer, error = read_offer(offer_text, product_names)
     if error:
@@ -94,7 +94,7 @@ def main():
     if not_found:
         print("  (That's fine: the app shows those as unknown, live or in replay.)")
 
-    # We save Claude's answer exactly as it came back.
+    # We save claude's answer exactly as it came back.
     # The app checks its quotes and picks the label again every time it is replayed.
     now = datetime.datetime.now()
     record = {

@@ -2,8 +2,8 @@
 # The files behind "Demo replay (no internet needed)".
 # save_demo_cache.py records one real run into data/demo_cache/.
 # When Demo replay is on, app.py plays that run back from these files,
-# so it never needs Claude, Cartesia or the internet.
-# This file only reads and writes files. It never calls Claude or Cartesia,
+# so it never needs claude, Cartesia or the internet.
+# This file only reads and writes files. It never calls claude or Cartesia,
 # and it never picks a tier (scoring.py always does that).
 
 import datetime
@@ -17,7 +17,7 @@ CACHE_FOLDER = os.path.join(PROJECT_FOLDER, "data", "demo_cache")
 # The sample offer that gets a real, saved run
 REPLAY_OFFER = "OFFER 1"
 
-# Claude's real reading of OFFER 1
+# claude's real reading of OFFER 1
 RESULT_FILE = os.path.join(CACHE_FOLDER, "offer1_result.json")
 
 # The voice for "Listen to the result" on OFFER 1
@@ -63,7 +63,7 @@ def same_words(text):
 
 def load_replay():
     """The saved run of OFFER 1, or None if it is missing or broken.
-    It holds "offer_text" (the offer that was read) and "answer" (Claude's reading)."""
+    It holds "offer_text" (the offer that was read) and "answer" (claude's reading)."""
     saved = read_json(RESULT_FILE)
     if saved is None:
         return None
@@ -131,7 +131,7 @@ def saved_audio(words):
 # ---------- Saving the run (used by save_demo_cache.py) ----------
 
 def save_result(record):
-    """Save Claude's reading of OFFER 1 to offer1_result.json."""
+    """Save claude's reading of OFFER 1 to offer1_result.json."""
     write_json(RESULT_FILE, record)
 
 

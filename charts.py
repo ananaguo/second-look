@@ -1,10 +1,11 @@
 # charts.py
 # Every chart in Second Look, drawn with Altair (it comes with Streamlit).
-#   show_worst_year_chart(rows)  Explore products: what $10,000 became in its worst year
-#   show_fees_chart(rows)        Compare: what yearly fees add up to over 10 years
-#   show_returns_card(...)       History: every year's return since 1928
-#   show_growth_card(...)        History: what $10,000 became, with interest reinvested
-#   show_history_note(history)   History: the "past results" line under both charts
+#   show_worst_year_chart(rows)    Explore products: what $10,000 became in its worst year
+#   show_fees_chart(rows)          Compare: what yearly fees add up to over 10 years
+#   show_tier_totals_chart(items)  My products: how much money is in each label
+#   show_returns_card(...)         History: every year's return since 1928
+#   show_growth_card(...)          History: what $10,000 became, with interest reinvested
+#   show_history_note(history)     History: the "past results" line under both charts
 # rows is a list of (product, result) pairs from app.py, already in label order
 # (Safe Harbor first, Uncharted Waters last).
 # The tier always comes from scoring.py (inside each result). Nothing here picks a tier.
@@ -15,6 +16,8 @@ import os
 import altair as alt
 import streamlit as st
 
+from products import TIERS, RISK_BENCHMARKS
+from risk_metrics import calculate_risk
 from scoring import tier_label
 
 # ---------- How the charts look ----------
@@ -57,6 +60,12 @@ FEES_SENTENCE = (
 )
 SURRENDER_TEXT = "plus surrender charges"
 VARIES_TEXT = "Varies"
+
+TIER_TOTALS_TITLE = "How much of your money is in each label"
+TIER_TOTALS_SENTENCE = (
+    "Each bar is the money you entered for that label, with its share of your total. "
+    "A label describes a kind of product, not a promise."
+)
 
 # ---------- History: the data ----------
 PROJECT_FOLDER = os.path.dirname(os.path.abspath(__file__))
@@ -153,13 +162,13 @@ def show_table(table):
 
 
 def bar_chart(records, x_title, x_max, tooltip, description, tick_values=None):
-    """One horizontal bar chart, used by the two product charts.
+    """One horizontal bar chart, used by the product charts.
     Each record needs: product, value (a number), has_bar (True or False)
     and bar_text (the words written next to the bar).
     x_max is a little bigger than the longest bar, so the words next to it fit."""
     data = alt.Data(values=records)
 
-    # Product names down the left side, in the same order as the records.
+    # Names down the left side, in the same order as the records.
     order = [record["product"] for record in records]
     y = alt.Y(
         "product:N",
@@ -176,7 +185,7 @@ def bar_chart(records, x_title, x_max, tooltip, description, tick_values=None):
         axis_settings["tickCount"] = 5
     x_scale = alt.Scale(domain=[0, x_max])
 
-    # Navy bars. Products with no number (has_bar is False) get no bar.
+    # Navy bars. Records with no number (has_bar is False) get no bar.
     bars = (
         alt.Chart(data)
         .transform_filter("datum.has_bar")
@@ -210,7 +219,7 @@ def bar_chart(records, x_title, x_max, tooltip, description, tick_values=None):
 
     chart = alt.layer(bars, words).properties(
         width="container",                 # full width
-        height=alt.Step(ROW_HEIGHT),       # one tall row per product
+        height=alt.Step(ROW_HEIGHT),       # one tall row per bar
         description=description,          # read by screen readers
     )
     return apply_look(chart)
@@ -381,6 +390,73 @@ def show_fees_chart(rows):
     show_chart_card("card_chart_fees", FEES_TITLE, FEES_SENTENCE, chart, table)
 
 
+# ---------- Chart 3: money in each label (My products) ----------
+
+def tier_total_records(items):
+    """One record per label for the My products chart.
+    items is a list of (tier, dollars) pairs; the tier comes from scoring.py.
+    All six labels are shown, from Safe Harbor to Uncharted Waters,
+    so you can see which ones have nothing in them too."""
+    totals = {}
+    for tier, amount in items:
+        totals[tier] = totals.get(tier, 0) + amount
+    grand_total = sum(totals.values())
+
+    order = [tier["number"] for tier in sorted(TIERS, key=lambda t: t["number"])]
+    # Products with no normal label go last, only if there are any.
+    for extra in ("off_map", "not_rated"):
+        if extra in totals:
+            order.append(extra)
+
+    records = []
+    for tier in order:
+        amount = totals.get(tier, 0)
+        share = round(amount / grand_total * 100) if grand_total else 0
+        records.append({
+            "product": tier_label(tier),
+            "value": amount,
+            "has_bar": amount > 0,
+            "amount": dollars(amount),
+            "share": f"{share}%",
+            "bar_text": f"{dollars(amount)}{SEPARATOR}{share}% of your total",
+        })
+    return records
+
+
+def show_tier_totals_chart(items):
+    """My products: how much money is in each label."""
+    if not items:
+        return
+    records = tier_total_records(items)
+
+    # Room on the right for the words. At least $100, so tiny amounts still draw.
+    biggest = max(record["value"] for record in records)
+    x_max = max(biggest, 100) * 2
+
+    tooltip = [
+        alt.Tooltip("product:N", title="Label"),
+        alt.Tooltip("amount:N", title="Amount"),
+        alt.Tooltip("share:N", title="Share of your total"),
+    ]
+    chart = bar_chart(
+        records,
+        x_title="Dollars in this label",
+        x_max=x_max,
+        tooltip=tooltip,
+        description=TIER_TOTALS_TITLE,
+    )
+
+    table = [
+        {
+            "Label": record["product"],
+            "Amount": record["amount"],
+            "Share of your total": record["share"],
+        }
+        for record in records
+    ]
+    show_chart_card("card_chart_tiers", TIER_TOTALS_TITLE, TIER_TOTALS_SENTENCE, chart, table)
+
+
 # ---------- History: reading data/history.csv ----------
 
 @st.cache_data(show_spinner=False)
@@ -538,6 +614,8 @@ def show_returns_card(history, pick_series):
     with st.container(key="card_chart_returns"):
         st.markdown(f"### Every year since {first}")
         key = pick_series()
+        show_risk_details(history, key, series_info(key)["name"],
+                          "These estimates use the full available annual benchmark history, independently of the growth chart's selected start year.")
         losses, total = count_losses(history, key)
         st.markdown(f"Bars below the line are losing years: {losses} of the {total} years shown.")
 
@@ -768,3 +846,41 @@ def show_history_note(history):
     first, last = first_and_last_year(history)
     note = HISTORY_NOTE.format(source=HISTORY_SOURCE, url=HISTORY_SOURCE_URL, first=first, last=last)
     st.markdown(f"ℹ️ {note}")
+
+# Expanders stay collapsed; figures are calculated from local annual returns.
+def show_risk_details(history, series, label, note="", inline=False):
+    with (st.container() if inline else st.expander("Risk in numbers — more details", expanded=False)):
+        st.markdown(f"**Historical benchmark: {label}**")
+        if note:
+            st.markdown(note)
+        try:
+            risk = calculate_risk(history, series)
+        except (ValueError, KeyError, TypeError, OverflowError):
+            st.info("Risk estimates are unavailable. Check data/history.csv for at least 40 complete, consecutive annual observations.")
+            return
+        st.caption(f"{risk['start']}–{risk['end']} · {risk['observations']} calendar years · one-year horizon · 95% confidence · $10,000 illustration")
+        st.table([
+            {"Measure": "95% historical Value at Risk", "Estimate": f"{risk['var_pct']:.2f}%", "Per $10,000": f"${risk['var_dollars']:,.0f}"},
+            {"Measure": "Expected Shortfall (worst 5%)", "Estimate": f"{risk['es_pct']:.2f}%", "Per $10,000": f"${risk['es_dollars']:,.0f}"},
+            {"Measure": "Maximum year-end drawdown", "Estimate": f"{risk['drawdown_pct']:.2f}%", "Per $10,000": f"${risk['drawdown_dollars']:,.0f} from an illustrative peak"},
+            {"Measure": "Frequency of losing years", "Estimate": f"{risk['loss_frequency_pct']:.1f}% ({risk['losing_years']} of {risk['observations']})", "Per $10,000": "Not applicable"},
+        ])
+        st.markdown(
+            "**VaR** is the historical loss threshold at the 95th percentile. It is not a maximum possible loss. "
+            "**Expected Shortfall** averages the worst 5% of annual outcomes. "
+            "**Drawdown** measures the largest compounded fall from a prior year-end peak, including the initial investment. "
+            "Actual losses within a year can be much larger."
+        )
+        st.caption("Method: annual returns in percent; nearest-rank empirical VaR; tail-average ES with fractional observation weights. Gains count as zero downside loss. A zero estimate does not mean no risk. Results exclude fees, taxes, inflation, withdrawal penalties and default scenarios absent from the data. Historical frequencies are not forecasts. The $10,000 drawdown example scales a peak balance, not necessarily the initial investment.")
+        st.markdown(f"Source: [{HISTORY_SOURCE}]({HISTORY_SOURCE_URL}). Data window is the local CSV shown above. These estimates do not change the product's risk tier.")
+
+
+def show_product_risk(product, history=None, inline=False):
+    benchmark = RISK_BENCHMARKS.get(product.get("key"))
+    if benchmark:
+        show_risk_details(load_history() if history is None else history,
+                          benchmark["series"], benchmark["label"], benchmark["note"], inline=inline)
+    else:
+        with (st.container() if inline else st.expander("Risk in numbers — more details", expanded=False)):
+            st.markdown("No suitable historical return series is configured for this product. We do not infer VaR from its single worst-year figure.")
+            st.markdown("Use the insurance, access, costs, and historical-loss information above. A product-specific return series or contract model is needed to calculate additional risk estimates.")

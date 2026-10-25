@@ -2,7 +2,7 @@
 # Checks the saved Demo replay files in data/demo_cache/.
 # Run save_demo_cache.py first, then from the project folder:
 #   python tests\check_replay.py
-# This never calls Claude or Cartesia. It only reads the saved files.
+# This never calls grok or Cartesia. It only reads the saved files.
 
 import os
 import sys

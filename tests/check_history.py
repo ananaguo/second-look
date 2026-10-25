@@ -1,6 +1,6 @@
 # tests/check_history.py
 # Checks the History numbers and charts in charts.py.
-# It doesn't call Claude or Cartesia (no credits used, no internet needed).
+# It doesn't call grok or Cartesia (no credits used, no internet needed).
 # Run from the project folder:  python tests\check_history.py
 # (Streamlit may print a "No runtime found" warning. That is normal here.)
 
