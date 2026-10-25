@@ -298,6 +298,19 @@ body *:not([data-testid="stIconMaterial"]) {
 .stApp [data-testid="stAlert"] * {
     color: var(--text) !important;
 }
+/* The Demo replay banner at the top of every page (key "replay_banner" in app.py):
+   its words may use the whole width of the window, so the banner takes
+   as few lines as possible. Every other paragraph keeps its 75-character limit. */
+.stApp .st-key-replay_banner [data-testid="stAlert"] p {
+    max-width: none !important;
+}
+/* The command in it (python save_demo_cache.py) is as big as the words around it */
+.stApp .st-key-replay_banner code {
+    font-size: 1em !important;
+    font-weight: 700;
+    background: none !important;
+    padding: 0 !important;
+}
 
 /* ---------- 9. Questions with choices (Your situation, Voice speed, Check an offer) ---------- */
 /* The question above the choices: as big as a card title */

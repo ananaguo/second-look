@@ -8,6 +8,7 @@ import os
 
 import streamlit as st
 
+from charts import show_fees_chart, show_worst_year_chart
 from checks import (
     FOUND_TAG,
     GOV_CLAIM_WARNING,
@@ -931,6 +932,9 @@ def show_explore():
             )
         show_notes_prompt()
 
+    # The worst-year chart (charts.py), above the cards.
+    show_worst_year_chart(sorted_products())
+
     # One card per product. styles.py lays them out in a grid:
     # three per row on wide screens, two on medium screens, one on phones.
     with st.container(key="grid_products"):
@@ -1146,6 +1150,8 @@ def show_compare():
         st.markdown(compare_table_html(rows), unsafe_allow_html=True)
         if st.session_state.get("answers"):
             st.markdown(NOTES_DISCLAIMER)
+        # The fees chart (charts.py), under the table.
+        show_fees_chart(rows)
 
     # The scam card, the help card and "Something looks wrong?"
     show_safety_cards()
