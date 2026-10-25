@@ -5,6 +5,7 @@
 # Contrast checks (the goal is 7:1 or more for all text):
 #   body text  #1B1F24 on white or on the page color: about 16:1
 #   body text  #1B1F24 on the striped table rows:     about 15:1
+#   body text  #1B1F24 on the light notice box #E9ECF3: about 14:1
 #   navy       #14213D on the page color:             about 15:1
 #   white text on navy (buttons, headline band, footer): about 16:1
 #   white text on the lighter navy hover color #2A3756: about 12:1
@@ -30,7 +31,7 @@ CSS = """
     --text: #1B1F24;            /* body text */
     --text-secondary: #4A5260;  /* small helper text, and borders on boxes you type in */
     --gold: #9A7B2F;            /* decorative divider ONLY, never text */
-    --tint: #E9ECF3;            /* a chosen answer, or a button under the mouse */
+    --tint: #E9ECF3;            /* a chosen answer, a button under the mouse, the top notice */
     --row-alt: #F3F4F7;         /* every other row in the Compare table */
 
     --text-space: 20px;         /* between a heading and the text below it */
@@ -94,6 +95,21 @@ body *:not([data-testid="stIconMaterial"]) {
 /* Button words are short, so they may use the whole button */
 .stApp .stButton p {
     max-width: none;
+}
+
+/* The notice at the top of every page ("educational, not advice"):
+   a light box across the page, with the sentence in the middle.
+   On a wide screen it fits on one line; on a narrow one it wraps,
+   and every line stays centered. */
+.stApp .st-key-notice_top {
+    background-color: var(--tint);
+    border-radius: 12px;
+    padding: 20px 32px;
+}
+.stApp .st-key-notice_top p {
+    max-width: none;
+    margin: 0 auto !important;
+    text-align: center;
 }
 
 /* Links: navy AND underlined, so they never depend on color alone */
@@ -198,6 +214,48 @@ body *:not([data-testid="stIconMaterial"]) {
     font-size: 30px;
     letter-spacing: 4px;
     color: var(--navy);
+}
+/* The word and its count ("Small (1 of 4)") always stay on one line together */
+.stApp .gauge-value {
+    white-space: nowrap;
+}
+
+/* The two badges ("Getting money out" and "Cost").
+   They sit side by side when both fit. When the card is too narrow,
+   the second one moves under the first, so nothing gets squeezed. */
+.stApp .badge-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px 40px;    /* 16px between rows, 40px between the two badges */
+}
+.stApp .badge {
+    flex: 1 1 auto;    /* as wide as its words, and shares any spare room */
+    min-width: 0;
+}
+.stApp .badge p {
+    margin: 0 !important;
+    max-width: none !important;
+}
+/* The small title above each badge */
+.stApp .badge-title {
+    font-size: 22px !important;
+    font-weight: 700;
+    line-height: 1.3 !important;
+    color: var(--text) !important;
+}
+/* The badge itself: as big as the tier name, with the icon right next to the word */
+.stApp .badge-value {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 32px !important;
+    line-height: 1.3 !important;
+    font-weight: 700;
+    color: var(--navy) !important;
+}
+/* The icon never shrinks or moves onto its own line */
+.stApp .badge-icon {
+    flex: none;
 }
 
 /* ---------- 8. Small helper text and message boxes ---------- */

@@ -1,6 +1,6 @@
 # app.py
 # The screens of Second Look.
-# Run it with:  streamlit run app.py
+# Run it with:  python -m streamlit run app.py
 
 import html
 import json
@@ -133,6 +133,10 @@ COST_ICONS = {
     "High": "💲💲💲",
     "Varies": "❔",
 }
+
+# The titles above the two badges
+ACCESS_TITLE = "Getting money out"
+COST_TITLE = "Cost"
 
 # Special worst-year lines
 SAFE_HARBOR_LINE = "Safe from losses, not from rising prices. Insured up to $250,000 per bank."
@@ -282,8 +286,11 @@ def safe_text(text):
 
 
 def show_notice():
-    """The educational notice at the top of every view."""
-    st.info(NOTICE, icon="ℹ️")
+    """The educational notice at the top of every view, centered.
+    The key "notice_top" lets styles.py draw its light box
+    and put the sentence in the middle."""
+    with st.container(key="notice_top"):
+        st.markdown(f"ℹ️ {NOTICE}")
 
 
 def show_nav():
@@ -658,11 +665,13 @@ def draw_bar(filled, total):
 
 def gauge_line(title, bar, word, count):
     """One gauge line. The bar is hidden from screen readers,
-    because the word and the count already say the same thing."""
+    because the word and the count already say the same thing.
+    The word and the count sit in one piece ("gauge-value"),
+    so "Small (1 of 4)" is never split across two lines."""
     return (
         f'<p class="gauge"><strong>{title}:</strong> '
         f'<span class="gauge-bar" aria-hidden="true">{bar}</span> '
-        f"<strong>{word}</strong> ({count})</p>"
+        f'<span class="gauge-value"><strong>{word}</strong> ({count})</span></p>'
     )
 
 
@@ -715,15 +724,34 @@ def show_gauge(tier):
     st.markdown(rough + catch, unsafe_allow_html=True)
 
 
+def badge_html(title, icon, word):
+    """One badge: its title, then its icon and word side by side.
+    The icon is hidden from screen readers, because the word says the same thing."""
+    return (
+        '<div class="badge">'
+        f'<p class="badge-title">{html.escape(title)}</p>'
+        '<p class="badge-value">'
+        f'<span class="badge-icon" aria-hidden="true">{html.escape(icon)}</span>'
+        f"<span>{html.escape(word)}</span>"
+        "</p>"
+        "</div>"
+    )
+
+
 def show_badges(result):
-    """Card part 5: the access badge and the cost badge, as big as the tier name."""
+    """Card part 5: the access badge and the cost badge, as big as the tier name.
+    styles.py puts them side by side when they fit, or one under the other
+    when the card is narrow. Each icon always stays next to its word."""
     access = result["access_badge"]
     cost = result["cost_badge"]
-    left, right = st.columns(2, gap="medium")
-    with left:
-        st.markdown(f"**Getting money out**\n\n### {ACCESS_ICONS.get(access, '❔')} {access}")
-    with right:
-        st.markdown(f"**Cost**\n\n### {COST_ICONS.get(cost, '❔')} {cost}")
+    row = (
+        '<div class="badge-row">'
+        f"{badge_html(ACCESS_TITLE, ACCESS_ICONS.get(access, '❔'), access)}"
+        f"{badge_html(COST_TITLE, COST_ICONS.get(cost, '❔'), cost)}"
+        "</div>"
+    )
+    # Everything on one line: Streamlit could misread spaces at the start of a line.
+    st.markdown(row, unsafe_allow_html=True)
 
 
 def show_worst_year(product, result):
