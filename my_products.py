@@ -247,17 +247,21 @@ def form_record():
 
 def save_form():
     """Runs when Save is clicked: check the form, then add or change the product."""
+    st.session_state.pop("holding_save_diagnostic", None)
     problems = form_problems()
     if problems:
+        print("Second Look product save: form validation failed", flush=True)
         set_message(False, " ".join(problems))
         return
 
     editing = st.session_state.get("editing_holding")
+    print("Second Look product save: " + ("update requested" if editing else "add requested"), flush=True)
     if editing:
         ok, text = db.update_holding(editing, form_record())
     else:
         ok, text = db.add_holding(form_record())
     set_message(ok, text)
+    print("Second Look product save: " + ("success" if ok else "failed"), flush=True)
     if ok:
         reset_form()
         reload_holdings()
@@ -356,6 +360,9 @@ def show_form():
 
         st.button(SAVE_CHANGES_BUTTON if editing else ADD_BUTTON, key="hold_save",
                   on_click=save_form, type="primary", width="stretch")
+        diagnostic = st.session_state.get("holding_save_diagnostic")
+        if diagnostic:
+            st.caption(f"Save reference: {diagnostic['operation']}/{diagnostic['code']}. Share this reference with the app administrator.")
         if editing:
             st.button(CANCEL_BUTTON, key="hold_cancel", on_click=cancel_edit, width="stretch")
 

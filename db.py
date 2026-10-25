@@ -276,8 +276,36 @@ def list_holdings():
     return response.data or [], None
 
 
+def holding_save_error(operation, error=None, code=None):
+    """Report a safe code and explanation, never record values or credentials."""
+    import re
+    raw_code = code or getattr(error, "code", "") or "UNKNOWN"
+    safe_code = str(raw_code).upper()
+    if not re.fullmatch(r"[A-Z0-9_]{1,32}", safe_code):
+        safe_code = "UNKNOWN"
+    explanations = {
+        "PGRST205": "The product table is unavailable. Ask the administrator to check the holdings table and API schema.",
+        "42P01": "The product table is missing. Ask the administrator to check the holdings table.",
+        "PGRST204": "The database is missing a field this form needs. Ask the administrator to check the holdings columns.",
+        "42703": "The database columns do not match this form. Ask the administrator to check the holdings columns.",
+        "42501": "The database denied permission to save this product. Ask the administrator to check access policies for your account.",
+        "23503": "A required linked record is missing. Ask the administrator to check the account and product relationships.",
+        "23502": "A required database field is missing. Ask the administrator to check the holdings schema.",
+        "23514": "A value does not satisfy a database rule. Ask the administrator to check the form and database constraints.",
+        "23505": "This product conflicts with an existing database record. Reload your products before trying again.",
+        "PGRST301": "Your account session could not be verified. Sign out, sign in again, and retry.",
+        "PGRST303": "Your account session could not be verified. Sign out, sign in again, and retry.",
+        "NO_ROWS": "No updated product was returned. Reload your products and sign in again. If it continues, ask the administrator to check that the record exists and your account can read and update it.",
+    }
+    detail = explanations.get(safe_code, "The product could not be saved. Ask the administrator to check database connectivity and configuration.")
+    st.session_state["holding_save_diagnostic"] = {"operation": operation, "code": safe_code}
+    print(f"Second Look product save: operation={operation} code={safe_code}", flush=True)
+    return f"{detail} Reference: {operation}/{safe_code}."
+
+
 def add_holding(record):
     """Add one product. Returns (True or False, a message)."""
+    st.session_state.pop("holding_save_diagnostic", None)
     client, user_id = signed_in_client()
     if client is None:
         return False, SIGNED_OUT_NOW
@@ -286,13 +314,13 @@ def add_holding(record):
     try:
         client.table(HOLDINGS_TABLE).insert(row).execute()
     except Exception as error:
-        print(f"Supabase holdings add problem: {error}")
-        return False, HOLDING_TROUBLE
+        return False, holding_save_error("add", error)
     return True, HOLDING_ADDED
 
 
 def update_holding(holding_id, record):
     """Change one of the person's own products. Returns (True or False, a message)."""
+    st.session_state.pop("holding_save_diagnostic", None)
     client, user_id = signed_in_client()
     if client is None:
         return False, SIGNED_OUT_NOW
@@ -305,10 +333,9 @@ def update_holding(holding_id, record):
             .execute()
         )
     except Exception as error:
-        print(f"Supabase holdings change problem: {error}")
-        return False, HOLDING_TROUBLE
+        return False, holding_save_error("update", error)
     if not response.data:
-        return False, HOLDING_TROUBLE
+        return False, holding_save_error("update", code="NO_ROWS")
     return True, HOLDING_CHANGED
 
 
