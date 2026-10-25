@@ -5,8 +5,10 @@
 import html
 import json
 import os
+import time
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 from charts import (
     HISTORY_MISSING,
@@ -27,11 +29,17 @@ from checks import (
     NOT_FOUND_TAG,
     SAFE_SENTENCE,
     apply_guards,
-    find_product_by_name,
     quote_check_counts,
     verify_quotes,
 )
 from claude_helper import read_offer
+from demo_replay import (
+    REPLAY_OFFER,
+    banner_text,
+    load_replay,
+    recorded_date_words,
+    saved_audio,
+)
 from footer import show_footer
 from live_data import (
     UNAVAILABLE_NOTE,
@@ -41,7 +49,25 @@ from live_data import (
     rate_line,
     tbill_rate_for_scoring,
 )
-from products import PRODUCTS, TIERS
+from products import PRODUCTS
+# The words the voice says, and the helpers that read the AI's answer,
+# live in results.py, so the app and save_demo_cache.py always match.
+from results import (
+    EXAMPLE_AMOUNT,
+    NOT_RATED_SENTENCE,
+    OFF_MAP_SENTENCE,
+    OFFER_CLOSING_LINE,
+    access_word,
+    as_number,
+    build_offer_facts,
+    card_words,
+    get_part,
+    get_tier_info,
+    is_quoted,
+    offer_words,
+    score_offer,
+    yes_no_unknown,
+)
 from scoring import (
     ACCESS_BADGES,
     DROP_SELL,
@@ -57,10 +83,8 @@ from voice_helper import (
     DEFAULT_SPEED,
     SPEED_NORMAL,
     SPEED_SLOWER,
-    dollars_in_words,
     get_speech,
     get_transcript,
-    number_words,
 )
 from welcome import WELCOME_WORDS, show_welcome
 
@@ -77,9 +101,35 @@ apply_styles()
 
 # ---------- Demo mode ----------
 # True: the six sample offers use saved readings from data/sample_answers.json,
-#       so they work without calling Claude (no API credits needed).
-# False: every offer, samples included, is read live by Claude.
+#       so they work without calling the AI (no API credits needed).
+# False: every offer, samples included, is read live by the AI.
 DEMO_MODE = True
+
+# ---------- Demo replay (the big switch at the top of every page) ----------
+# When it is on, the app plays back one real run saved by save_demo_cache.py:
+# the AI's reading of OFFER 1 and the saved voices. No the AI, no Cartesia.
+REPLAY_ON_BUTTON = "📼 Demo replay is OFF. Click to turn it on (no internet needed)"
+REPLAY_OFF_BUTTON = "📼 Demo replay is ON. Click to go back to live mode"
+REPLAY_MISSING = (
+    "Demo replay has no saved run yet. With the internet on, run "
+    "`python save_demo_cache.py` once from the project folder, then reload this page."
+)
+REPLAY_NO_VOICE = (
+    "Demo replay has no saved voice for these exact words. "
+    "The captions below show what would be said."
+)
+REPLAY_NO_RECORDING = (
+    "Saying it out loud needs the internet, so it is off during Demo replay. "
+    "Pick a sample instead, or turn Demo replay off."
+)
+REPLAY_LIVE_OFF = (
+    f"During Demo replay, only the samples can be checked. {REPLAY_OFFER} uses a real saved run. "
+    "Turn Demo replay off to check other words live."
+)
+REPLAY_SAMPLE_NOTICE = (
+    f"📼 **Demo replay is on.** {REPLAY_OFFER} plays back a real, saved run by the AI. "
+    "The other samples use saved, hand-written readings."
+)
 
 # ---------- The six views, in the order their buttons appear ----------
 VIEWS = ["Welcome", "Your situation", "Explore products", "Compare", "Check an offer", "History"]
@@ -164,12 +214,6 @@ COST_TITLE = "Cost"
 SAFE_HARBOR_LINE = "Safe from losses, not from rising prices. Insured up to $250,000 per bank."
 BIG_LOSS_LINE = "Could lose most or all."
 
-# The amount used in every "worst year" example
-EXAMPLE_AMOUNT = 10000
-
-# What the heading says when a product has no normal tier
-OFF_MAP_SENTENCE = "No tier: this needs a closer look."
-NOT_RATED_SENTENCE = "No tier yet: we are missing facts."
 # Which live rate belongs to which product (keys from SERIES in live_data.py)
 RATE_FOR_PRODUCT = {
     "savings": "savings",
@@ -185,6 +229,8 @@ def todays_rate(product):
     if rate_key is None:
         return None
     return rate_line(get_live_rates(), rate_key)
+
+
 # ---------- Voice: words and settings ----------
 SPEED_LABEL = "Voice speed"
 SPEED_CHOICES = [SPEED_SLOWER, SPEED_NORMAL]
@@ -209,7 +255,7 @@ SAMPLE_OFFERS_FILE = os.path.join(DATA_FOLDER, "sample_offers.md")
 # Where the saved, hand-written readings of those samples live (for demo mode)
 SAMPLE_ANSWERS_FILE = os.path.join(DATA_FOLDER, "sample_answers.json")
 
-# The longest offer someone can paste (keeps Claude calls small)
+# The longest offer someone can paste (keeps the AI calls small)
 OFFER_MAX_CHARS = 6000
 
 # Step 1: choose one of three ways
@@ -263,10 +309,6 @@ FLAGS_FOUND_LINE = (
     "at the bottom of this page says what to do next."
 )
 NOT_STATED_QUOTE = "*The offer doesn't say.*"
-OFFER_CLOSING_LINE = (
-    "This is a first look, not advice. Before you sign anything, "
-    "talk it over with someone you trust."
-)
 
 # Voice input on Check an offer
 RECORD_LABEL = "🎙️ Your recording"
@@ -294,11 +336,11 @@ UNSURE_FLAGS_LINE = (
 # Demo mode words (always an icon AND words)
 DEMO_NOTICE = (
     "📼 **Demo mode is on.** The six sample offers use saved readings, "
-    "so they work without Claude. Anything you paste or change is checked live by Claude."
+    "so they work without the AI. Anything you paste or change is checked live by the AI."
 )
 DEMO_CARD_LINE = (
     "📼 **Demo mode:** this is a saved, hand-written reading of a sample offer, "
-    "not a live check by Claude. The label still comes from our own rules."
+    "not a live check by the AI. The label still comes from our own rules."
 )
 
 # ---------- History: words for the choices ----------
@@ -347,13 +389,15 @@ def go_to(view_name):
     """Runs when a page button is clicked: remember which page to show.
     Any voice that was playing stops, so it never starts again by surprise."""
     st.session_state["view"] = view_name
+    st.session_state["scroll_to_top_request"] = time.time_ns()
     st.session_state.pop("now_speaking", None)
 
 
 def start_over():
-    """Runs when Start over is clicked: forget everything except the page."""
+    """Runs when Start over is clicked: forget everything except
+    the page and the Demo replay switch."""
     for key in list(st.session_state.keys()):
-        if key != "view":
+        if key not in ("view", "replay_on"):
             del st.session_state[key]
     # A one-time flag so we can tell the person it worked
     st.session_state["just_cleared"] = True
@@ -374,24 +418,135 @@ def show_notice():
 
 
 def show_nav():
-    """The row of six big page buttons."""
+    """Six page buttons with readable, two-line labels where needed."""
+    # Scope these overrides to navigation so other controls keep their styles.
+    st.markdown(
+        """
+        <style>
+        /* A full-width header anchored to the viewport, without a top gap. */
+        [data-testid="stHeader"] {
+            display: none !important;
+        }
+        .st-key-main_nav {
+            position: fixed !important;
+            inset: 0 0 auto 0 !important;
+            width: 100% !important;
+            max-width: none !important;
+            height: 6rem !important;
+            box-sizing: border-box !important;
+            z-index: 1000000 !important;
+            background: #fbfaf7 !important;
+            border: 0 !important;
+            border-bottom: 1px solid #dedfdc !important;
+            border-radius: 0 !important;
+            padding: 0.75rem clamp(1rem, 4vw, 5rem) !important;
+            margin: 0 !important;
+            box-shadow: 0 2px 8px rgba(22, 35, 63, 0.04) !important;
+            overflow-x: auto !important;
+            overflow-y: hidden !important;
+        }
+        .st-key-main_nav [data-testid="stHorizontalBlock"] {
+            display: flex !important;
+            flex-direction: row !important;
+            flex-wrap: nowrap !important;
+            gap: 0.5rem !important;
+            width: 100% !important;
+            max-width: 1440px !important;
+            margin: 0 auto !important;
+        }
+        .st-key-main_nav [data-testid="stColumn"] {
+            flex: 1 0 8rem !important;
+            min-width: 8rem !important;
+        }
+        .st-key-main_nav button {
+            box-sizing: border-box !important;
+            width: 100% !important;
+            height: 4.5rem !important;
+            min-height: 4.5rem !important;
+            padding: 0.5rem 0.75rem !important;
+            border: 1px solid transparent !important;
+            border-radius: 8px !important;
+            background: transparent !important;
+            color: #536074 !important;
+            box-shadow: none !important;
+            white-space: normal !important;
+            overflow: visible !important;
+            transition: background 150ms ease, color 150ms ease !important;
+        }
+        .st-key-main_nav button:hover {
+            background: #eeefed !important;
+            color: #17243e !important;
+        }
+        .st-key-main_nav button[kind="primary"],
+        .st-key-main_nav [data-testid="stBaseButton-primary"] {
+            background: #17243e !important;
+            color: #ffffff !important;
+            border-color: #17243e !important;
+        }
+        .st-key-main_nav button:focus-visible {
+            outline: 3px solid #ad8750 !important;
+            outline-offset: -3px !important;
+        }
+        .st-key-main_nav button [data-testid="stMarkdownContainer"],
+        .st-key-main_nav button [data-testid="stMarkdownContainer"] p {
+            width: 100% !important;
+            min-width: 0 !important;
+            height: auto !important;
+            max-height: none !important;
+            white-space: normal !important;
+            overflow: visible !important;
+            text-overflow: clip !important;
+            -webkit-line-clamp: unset !important;
+            display: block !important;
+            text-align: center !important;
+            font-family: "Times New Roman", Times, serif !important;
+            font-size: 1.125rem !important;
+            font-weight: 600 !important;
+            letter-spacing: 0.01em !important;
+            line-height: 1.3 !important;
+            color: inherit !important;
+            margin: 0 !important;
+        }
+        /* Reserve the header height once, without an additional spacer. */
+        [data-testid="stMainBlockContainer"],
+        .main .block-container,
+        .stMain .block-container {
+            padding-top: 6rem !important;
+        }
+        .st-key-notice_top {
+            margin-top: 0 !important;
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .st-key-main_nav button { transition: none !important; }
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    # Markdown hard breaks keep the full wording on two lines.
+    labels = {
+        "Your situation": "Your  \nsituation",
+        "Explore products": "Explore  \nproducts",
+        "Check an offer": "Check an  \noffer",
+    }
     current = st.session_state["view"]
-    columns = st.columns(len(VIEWS), gap="small")
+    with st.container(key="main_nav"):
+        columns = st.columns(len(VIEWS), gap="small")
+        for number, view_name in enumerate(VIEWS):
+            is_current = view_name == current
+            label = labels.get(view_name, view_name)
+            if is_current:
+                label = f"**{label}**"
+            with columns[number]:
+                st.button(
+                    label,
+                    key=f"nav_{number}",
+                    on_click=go_to,
+                    args=(view_name,),
+                    type="primary" if is_current else "secondary",
+                    width="stretch",
+                )
 
-    for number, view_name in enumerate(VIEWS):
-        is_current = view_name == current
-        # The page you are on gets a pin icon and a filled navy button,
-        # so it never depends on color alone.
-        label = f"📍 {view_name}" if is_current else view_name
-        with columns[number]:
-            st.button(
-                label,
-                key=f"nav_{number}",
-                on_click=go_to,
-                args=(view_name,),
-                type="primary" if is_current else "secondary",
-                width="stretch",
-            )
 
 
 def show_heading():
@@ -413,6 +568,40 @@ def show_start_over():
     # Confirm that it worked, then forget the flag
     if st.session_state.pop("just_cleared", False):
         st.success("Done. Everything you entered has been cleared.", icon="✅")
+
+
+# ---------- Demo replay: the switch and the banner ----------
+
+def replay_on():
+    """True while Demo replay is switched on."""
+    return st.session_state.get("replay_on", False)
+
+
+def toggle_replay():
+    """Runs when the Demo replay button is clicked: switch it on or off.
+    Old results and any playing voice are cleared, so live and replay never mix."""
+    st.session_state["replay_on"] = not replay_on()
+    st.session_state.pop("now_speaking", None)
+    st.session_state.pop("offer_cache", None)
+
+
+def show_replay_switch():
+    """The big Demo replay button, and the banner while it is on.
+    The button's words always say whether replay is ON or OFF."""
+    if replay_on():
+        label, kind = REPLAY_OFF_BUTTON, "primary"
+    else:
+        label, kind = REPLAY_ON_BUTTON, "secondary"
+    st.button(label, key="replay_switch", on_click=toggle_replay, type=kind, width="stretch")
+
+    if replay_on():
+        # The key "replay_banner" lets styles.py use the full width for the banner.
+        with st.container(key="replay_banner"):
+            saved = load_replay()
+            if saved is not None:
+                st.info(banner_text(saved), icon="📼")
+            else:
+                st.warning(REPLAY_MISSING, icon="📂")
 
 
 # ---------- Voice: speaking out loud, with captions ----------
@@ -440,91 +629,19 @@ def stop_speaking():
     st.session_state.pop("now_speaking", None)
 
 
-def end_sentence(text):
-    """Add a period at the end, unless the text already ends with . ! or ?"""
-    text = str(text).strip()
-    if not text or text[-1] in ".!?":
-        return text
-    return text + "."
-
-
-def get_tier_info(tier):
-    """Find the tier's name and icon in products.py. None if it has no tier."""
-    for t in TIERS:
-        if t["number"] == tier:
-            return t
-    return None
-
-
-def tier_name_and_sentence(tier):
-    """The tier's name and its one sentence, for speaking."""
-    info = get_tier_info(tier)
-    if info is not None:
-        return info["name"], info["sentence"]
-    if tier == "off_map":
-        return tier_label(tier), OFF_MAP_SENTENCE
-    return tier_label(tier), NOT_RATED_SENTENCE
-
-
-def badge_words(result):
-    """The two badges, said with their titles so they make sense when heard."""
-    return f"Getting money out: {result['access_badge']}. Cost: {result['cost_badge']}."
-
-
-def card_words(product, result):
-    """What Read aloud says for one product card:
-    [tier name]. [tier sentence]. [product name]: [one_line].
-    In its worst year, ten thousand dollars became [X]. [access badge]. [cost badge]."""
-    name, sentence = tier_name_and_sentence(result["tier"])
-
-    lost = result["worst_case_dollars"]
-    if lost is None:
-        worst = "We don't know its worst year yet."
-    else:
-        left_over = max(0, EXAMPLE_AMOUNT - lost)
-        worst = f"In its worst year, ten thousand dollars became {dollars_in_words(left_over)}."
-
-    parts = [
-        end_sentence(name),
-        end_sentence(sentence),
-        end_sentence(f"{product['name']}: {product['one_line']}"),
-        worst,
-        badge_words(result),
-    ]
-    return " ".join(parts)
-
-
-def offer_words(answer, result):
-    """What Listen to the result says for an offer:
-    the spoken summary, our label and its sentence, any warning signs,
-    the two badges, and the closing reminder."""
-    parts = []
-    summary = answer.get("spoken_summary")
-    if isinstance(summary, str) and summary.strip():
-        parts.append(end_sentence(summary))
-
-    name, sentence = tier_name_and_sentence(result["tier"])
-    parts.append(end_sentence(f"Our label for this offer: {name}"))
-    parts.append(end_sentence(sentence))
-
-    count = answer.get("guards", {}).get("red_flag_count", 0)
-    if count:
-        signs = "sign" if count == 1 else "signs"
-        parts.append(f"We found {number_words(count)} warning {signs} in this offer.")
-
-    parts.append(badge_words(result))
-    parts.append(OFFER_CLOSING_LINE)
-    return " ".join(parts)
-
-
 def show_voice(words):
     """If these words were asked for, play them and show them as captions.
+    In Demo replay, the voice comes from a saved file, never from Cartesia.
     If the voice fails, the captions still show, with a calm message."""
     if st.session_state.get("now_speaking") != words:
         return
 
-    with st.spinner(VOICE_SPINNER):
-        audio, error = get_speech(words, current_speed())
+    if replay_on():
+        audio = saved_audio(words)
+        error = None if audio else REPLAY_NO_VOICE
+    else:
+        with st.spinner(VOICE_SPINNER):
+            audio, error = get_speech(words, current_speed())
 
     if error:
         st.info(error, icon="🔇")
@@ -887,13 +1004,16 @@ def show_numbers(product, result):
         cost = product["yearly_cost_pct"]
         cost_text = "Not known yet." if cost is None else f"{cost:g}% a year."
 
+        # Today's rate, only for products that have one
+        rate = todays_rate(product)
+        rate_part = f"**📡 {safe_text(rate)}**\n\n" if rate else ""
+
         st.markdown(
             f"**Worst year:** {safe_text(product['worst_year'])}\n\n"
             f"**Loss in that year:** {loss_text}\n\n"
             f"**What it might earn:** {safe_text(product['gain_note'])}\n\n"
-            + (f"**📡 {safe_text(todays_rate(product))}**\n\n" if todays_rate(product) else "")
+            + rate_part
             + f"**Yearly cost:** {cost_text} {safe_text(product['cost_note'])}\n\n"
-            f"**Yearly cost:** {cost_text} {safe_text(product['cost_note'])}\n\n"
             f"**Getting money out:** {safe_text(product['access_note'])}\n\n"
             f"**Insurance:** {safe_text(product['insurance_note'])}"
         )
@@ -1110,6 +1230,7 @@ def sources_cell(product):
         return "No sources yet."
     return "<br>".join(links)
 
+
 def earn_cell(product):
     """What it might earn, plus today's rate when the product has one."""
     text = cell_text(product["gain_note"])
@@ -1117,6 +1238,7 @@ def earn_cell(product):
     if rate:
         text += f"<br><strong>📡 {cell_text(rate)}</strong>"
     return text
+
 
 def compare_table_rows(rows):
     """Every row of the table: (row label, one cell per product).
@@ -1347,130 +1469,9 @@ def show_voice_input():
                       width="stretch")
 
 
-# ---------- Check an offer: reading Claude's answer safely ----------
-# The prompt tells Claude to write "unknown" whenever the offer doesn't say something.
-# checks.py has already checked every quote before these helpers see the answer.
-
-def get_part(answer, key):
-    """One part of Claude's answer, as a dictionary. Empty if it is missing."""
-    part = answer.get(key)
-    return part if isinstance(part, dict) else {}
-
-
-def is_quoted(part):
-    """True if Claude gave a real quote from the offer.
-    An empty quote or "unknown" does not count."""
-    if not isinstance(part, dict):
-        return False
-    quote = part.get("quote")
-    return isinstance(quote, str) and quote.strip().lower() not in ("", "unknown")
-
-
-def as_number(value):
-    """A number from Claude's answer, like 1.3 or "1.3%".
-    None if it isn't a number (for example "unknown")."""
-    if isinstance(value, bool):  # True and False are not numbers here
-        return None
-    if isinstance(value, (int, float)):
-        return value
-    if isinstance(value, str):
-        try:
-            return float(value.strip().rstrip("%").strip())
-        except ValueError:
-            return None
-    return None
-
-
-def yes_no_unknown(value):
-    """Turn "yes" / "no" / "unknown" (or true / false) into True, False or None."""
-    if value is True or value is False:
-        return value
-    if isinstance(value, str):
-        word = value.strip().lower()
-        if word == "yes":
-            return True
-        if word == "no":
-            return False
-    return None
-
-
-def access_word(part):
-    """Claude's access value in lowercase, like "locked_years". Empty if missing."""
-    value = part.get("value")
-    return value.strip().lower() if isinstance(value, str) else ""
-
-
-# ---------- Check an offer: building the offer's facts ----------
-
-def build_offer_facts(answer):
-    """Build the facts that scoring.py needs for this offer.
-    Government backing, worst year and protections come ONLY from products.py.
-    Access and costs come from the offer when a checked quote backs them up,
-    otherwise from products.py.
-    Returns (facts, matching product or None, list of where each fact came from)."""
-    product = find_product_by_name(answer.get("category"))
-    where_from = []
-
-    # Start with "not known" for everything.
-    facts = {
-        "government_backed": None,
-        "worst_year_loss_pct": None,
-        "worst_year": "not known",
-        "protections": None,
-        "access": "unknown",
-        "yearly_cost_pct": None,
-        "sales_or_surrender_charge": False,
-    }
-
-    # 1. Copy the facts from the matching product.
-    if product is not None:
-        for key in facts:
-            facts[key] = product[key]
-        where_from.append(
-            f"Government backing, worst year and protections: our product list ({product['name']})."
-        )
-    else:
-        where_from.append(
-            "Government backing, worst year and protections: not known, "
-            "because the offer didn't match a product on our list."
-        )
-
-    # 2. Getting money out: use the offer's words if the quote was found.
-    access = get_part(answer, "access")
-    if is_quoted(access) and access_word(access) in ACCESS_BADGES:
-        facts["access"] = access_word(access)
-        where_from.append("Getting money out: the offer's own words.")
-    elif product is not None:
-        where_from.append("Getting money out: our product list.")
-    else:
-        where_from.append("Getting money out: not known.")
-
-    # 3. Costs: use the offer's words if the quote was found.
-    costs = get_part(answer, "yearly_costs")
-    if is_quoted(costs):
-        yearly = as_number(costs.get("value_pct"))
-        if yearly is not None:
-            facts["yearly_cost_pct"] = yearly
-        surrender = yes_no_unknown(costs.get("has_surrender_or_sales_charge"))
-        if surrender is not None:
-            facts["sales_or_surrender_charge"] = surrender
-        where_from.append("Costs: the offer's own words.")
-    elif product is not None:
-        where_from.append("Costs: our product list.")
-    else:
-        where_from.append("Costs: not known.")
-
-    # 4. Promised return (used for the too-good-to-be-true check).
-    promised = get_part(answer, "promised_return")
-    if as_number(promised.get("value_pct")) is not None:
-        where_from.append("Promised return: the offer's own words.")
-    else:
-        where_from.append("Promised return: the offer didn't promise a number.")
-
-    return facts, product, where_from
-
-
 # ---------- Check an offer: showing the result card ----------
+# The helpers that read the AI's answer (get_part, is_quoted, as_number,
+# yes_no_unknown, access_word, build_offer_facts) live in results.py.
 
 def quote_md(text):
     """Show a quote from the offer in italics, safely.
@@ -1504,7 +1505,7 @@ def yes_no(value):
 
 
 def costs_words(costs):
-    """Claude's cost facts as one plain line."""
+    """the AI's cost facts as one plain line."""
     parts = []
     yearly = as_number(costs.get("value_pct"))
     if yearly is not None:
@@ -1518,7 +1519,7 @@ def costs_words(costs):
 
 
 def promised_words(promised):
-    """Claude's promised-return facts as one plain line."""
+    """the AI's promised-return facts as one plain line."""
     value = as_number(promised.get("value_pct"))
     if value is None:
         return "No number promised"
@@ -1654,15 +1655,16 @@ def show_offer_numbers(result, where_from, answer):
         )
 
 
-def show_offer_card(answer, is_demo):
-    """Step 3: the result card, in the order people need it:
-    our label, what the offer is in plain words, the warning signs,
-    how rough the water is, questions to ask, and then the details.
-    answer has already been through verify_quotes and apply_guards.
-    is_demo is True when the reading is a saved one, not a live Claude check."""
-    facts, product, where_from = build_offer_facts(answer)
+def score_offer_card(answer):
+    """The tier for an offer. scoring.py always picks it.
+    Live: it also uses today's Treasury bill rate.
+    Demo replay: it uses score_offer from results.py, exactly as
+    save_demo_cache.py did, so the label and the saved voice match.
+    Returns (result, facts, matching product or None, where each fact came from)."""
+    if replay_on():
+        return score_offer(answer)
 
-    # scoring.py picks the tier, using the promised return for the scam check.
+    facts, product, where_from = build_offer_facts(answer)
     promised = get_part(answer, "promised_return")
     result = assign_tier(
         facts,
@@ -1670,6 +1672,28 @@ def show_offer_card(answer, is_demo):
         promised_return_pct=as_number(promised.get("value_pct")),
         guaranteed=yes_no_unknown(promised.get("guaranteed")) is True,
     )
+    return result, facts, product, where_from
+
+
+def show_source_line(source):
+    """One line saying where this reading came from, with an icon and words.
+    source is "live", "demo" (hand-written) or "replay" (a real saved run)."""
+    if source == "demo":
+        st.markdown(DEMO_CARD_LINE)
+    elif source == "replay":
+        day = recorded_date_words(load_replay())
+        st.markdown(
+            f"📼 **Demo replay:** this is the AI's real reading of {REPLAY_OFFER}, "
+            f"recorded {day}. It is not a live check. The label still comes from our own rules."
+        )
+
+
+def show_offer_card(answer, source):
+    """Step 3: the result card, in the order people need it:
+    our label, what the offer is in plain words, the warning signs,
+    how rough the water is, questions to ask, and then the details.
+    answer has already been through verify_quotes and apply_guards."""
+    result, facts, product, where_from = score_offer_card(answer)
     tier = result["tier"]
 
     if product is not None:
@@ -1679,8 +1703,7 @@ def show_offer_card(answer, is_demo):
 
     with st.container(key="card_offer"):
         st.markdown(f"### {RESULT_TITLE}")
-        if is_demo:
-            st.markdown(DEMO_CARD_LINE)
+        show_source_line(source)
 
         # 1. Our label (from scoring.py), and what we compared the offer to
         st.markdown("**Our label for this offer:**")
@@ -1724,11 +1747,15 @@ def show_offer_card(answer, is_demo):
 # ---------- Check an offer: the three steps, one under another ----------
 
 def check_words(samples, demo_answers):
-    """Read the offer's words: a saved reading for a sample in demo mode,
-    otherwise a live call to Claude. Problems show right here, next to the step."""
+    """Read the offer's words. In this order:
+    1. Demo replay and the words are OFFER 1: the AI's real saved run.
+    2. A sample with a saved, hand-written reading.
+    3. Demo replay is on: stop here (no internet calls).
+    4. Otherwise: a live call to the AI.
+    Problems show right here, next to the step."""
     text = current_words().strip()
-    # Readings we already have, by offer text, so Claude is never asked twice.
-    # Each one is stored as {"answer": ..., "is_demo": True or False}.
+    # Readings we already have, by offer text, so the AI is never asked twice.
+    # Each one is stored as {"answer": ..., "source": "live", "demo" or "replay"}.
     cache = st.session_state.setdefault("offer_cache", {})
 
     if not text:
@@ -1737,20 +1764,30 @@ def check_words(samples, demo_answers):
     if text in cache:
         return
 
+    if replay_on():
+        saved = load_replay()
+        if saved is not None and text == saved["offer_text"].strip():
+            cache[text] = {"answer": saved["answer"], "source": "replay"}
+            return
+
     demo_answer = find_demo_answer(text, samples, demo_answers)
     if demo_answer is not None:
-        # A sample offer in demo mode: use the saved reading, no Claude call.
-        cache[text] = {"answer": demo_answer, "is_demo": True}
+        # A sample offer in demo mode: use the saved reading, no the AI call.
+        cache[text] = {"answer": demo_answer, "source": "demo"}
         return
 
-    # Anything else: ask Claude.
+    if replay_on():
+        st.info(REPLAY_LIVE_OFF, icon="📼")
+        return
+
+    # Anything else: ask the AI.
     with st.spinner(SPINNER_TEXT):
         product_names = [product["name"] for product in PRODUCTS]
         answer, error = read_offer(text, product_names)
     if error:
         st.error(error, icon="😕")
     else:
-        cache[text] = {"answer": answer, "is_demo": False}
+        cache[text] = {"answer": answer, "source": "live"}
 
 
 def show_result_ready():
@@ -1823,7 +1860,9 @@ def show_input_step(way, samples, demo_answers):
                     on_change=load_sample,
                     args=(samples,),
                 )
-                if demo_answers:
+                if replay_on():
+                    st.markdown(REPLAY_SAMPLE_NOTICE)
+                elif demo_answers:
                     st.markdown(DEMO_NOTICE)
             else:
                 st.markdown("📂 Sample offers not found. Check that data/sample_offers.md exists.")
@@ -1840,6 +1879,10 @@ def show_input_step(way, samples, demo_answers):
             show_result_ready()
 
         elif way == WAY_SAY:
+            if replay_on():
+                # Turning speech into words needs Cartesia, so it is off in replay.
+                st.info(REPLAY_NO_RECORDING, icon="📼")
+                return
             show_voice_input()
             # Once the person says "Yes, use this", the words appear here to read over.
             if st.session_state.get("voice_ready"):
@@ -1870,7 +1913,7 @@ def show_result_step():
     # 1. check each quote against the pasted text, 2. apply the guards.
     checked = verify_quotes(text, entry["answer"])
     guarded = apply_guards(checked)
-    show_offer_card(guarded, entry["is_demo"])
+    show_offer_card(guarded, entry["source"])
 
 
 def show_check_offer():
@@ -1913,14 +1956,16 @@ def series_name(key):
 def pick_history_series():
     """Big radio buttons: stocks, bonds or bills. Returns the key picked."""
     restore_choice("history_series", SERIES_KEYS[0])
-    return st.radio(
-        HISTORY_SERIES_LABEL,
-        SERIES_KEYS,
-        key="history_series",
-        on_change=remember_choice,
-        args=("history_series",),
-        format_func=series_name,
-    )
+    with st.container(key="history_series_choices"):
+        return st.radio(
+            HISTORY_SERIES_LABEL,
+            SERIES_KEYS,
+            key="history_series",
+            on_change=remember_choice,
+            args=("history_series",),
+            format_func=series_name,
+            horizontal=True,
+        )
 
 
 def pick_start_year():
@@ -1961,7 +2006,53 @@ def show_history():
         st.markdown(HISTORY_MISSING)
         return
 
-    st.markdown(safe_text(HISTORY_INTRO))
+    # Override reading-width limits and vertical radio styling only here.
+    st.markdown(
+        """
+        <style>
+        .st-key-history_intro,
+        .st-key-history_intro [data-testid="stMarkdownContainer"],
+        .st-key-history_intro p,
+        .st-key-history_series_choices,
+        .st-key-history_series_choices [data-testid="stRadio"] {
+            width: 100% !important;
+            max-width: none !important;
+        }
+        .st-key-history_intro p {
+            white-space: normal !important;
+        }
+        .st-key-history_series_choices [role="radiogroup"] {
+            display: grid !important;
+            grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+            gap: 1rem !important;
+            width: 100% !important;
+            max-width: none !important;
+        }
+        .st-key-history_series_choices [role="radiogroup"] > label {
+            box-sizing: border-box !important;
+            width: 100% !important;
+            min-width: 0 !important;
+            max-width: none !important;
+            height: auto !important;
+            margin: 0 !important;
+            align-self: stretch !important;
+            align-items: center !important;
+        }
+        .st-key-history_series_choices [data-testid="stMarkdownContainer"],
+        .st-key-history_series_choices [data-testid="stMarkdownContainer"] p {
+            min-width: 0 !important;
+            max-width: none !important;
+            white-space: normal !important;
+            overflow: visible !important;
+            text-overflow: clip !important;
+            overflow-wrap: anywhere !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    with st.container(key="history_intro"):
+        st.markdown(safe_text(HISTORY_INTRO))
     show_returns_card(history, pick_history_series)
     show_growth_card(history, pick_start_year, pick_run_length)
     # Under both charts: past results, fees and taxes, and the source.
@@ -1974,8 +2065,10 @@ def show_history():
 if st.session_state.get("view") not in VIEWS:
     st.session_state["view"] = "Welcome"
 
-show_notice()
 show_nav()
+show_notice()
+# The Demo replay switch, and its banner while it is on, on every page.
+show_replay_switch()
 # If FRED is slow or down, say so in words (with an icon), never just a color.
 if any_missing(get_live_rates()):
     st.info(UNAVAILABLE_NOTE, icon="📡")
@@ -2001,3 +2094,48 @@ else:
 show_start_over()
 # The footer, on every view: help numbers and the "not advice" notice.
 show_footer(NOTICE, get_live_rates())
+
+# Navigation callbacks request scrolling after the new page has been rendered.
+# A unique request ID makes the component execute on every click, even when
+# the visitor clicks the current page's button again.
+scroll_request = st.session_state.pop("scroll_to_top_request", None)
+if scroll_request is not None:
+    components.html(
+        """
+        <script>
+        // Navigation request: REQUEST_ID
+        (() => {
+            const resetScroll = () => {
+                try {
+                    const doc = window.parent.document;
+                    const targets = new Set([
+                        doc.scrollingElement,
+                        doc.documentElement,
+                        doc.body,
+                        ...doc.querySelectorAll(
+                            '[data-testid="stMain"], .stMain, '
+                            + '[data-testid="stAppViewContainer"], '
+                            + 'section.main'
+                        )
+                    ]);
+                    targets.forEach(el => {
+                        if (!el) return;
+                        const previous = el.style.scrollBehavior;
+                        el.style.scrollBehavior = 'auto';
+                        el.scrollTop = 0;
+                        el.style.scrollBehavior = previous;
+                    });
+                    window.parent.scrollTo({top: 0, left: 0, behavior: 'instant'});
+                } catch (error) {
+                    console.warn('Second Look could not reset page scroll.', error);
+                }
+            };
+            resetScroll();
+            requestAnimationFrame(resetScroll);
+            setTimeout(resetScroll, 150);
+        })();
+        </script>
+        """.replace("REQUEST_ID", str(scroll_request)),
+        height=0,
+        scrolling=False,
+    )
