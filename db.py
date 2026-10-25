@@ -135,6 +135,28 @@ def only_fields(record, fields):
     return {field: record.get(field) for field in fields}
 
 
+# App-facing names differ from the existing holdings table names.
+# Keep the rest of the UI/portfolio API stable and translate only at storage.
+HOLDING_COLUMN_MAP = {"company": "provider", "rate_pct": "interest_rate_pct"}
+
+
+def holding_to_database(record):
+    """Write only allowed fields, using the actual Supabase column names."""
+    return {
+        HOLDING_COLUMN_MAP.get(field, field): record.get(field)
+        for field in HOLDING_FIELDS
+    }
+
+
+def holding_from_database(row):
+    """Restore app-facing field names without discarding database metadata."""
+    result = dict(row)
+    for app_name, database_name in HOLDING_COLUMN_MAP.items():
+        if database_name in row:
+            result[app_name] = row[database_name]
+    return result
+
+
 # ---------- Who is signed in ----------
 
 def is_signed_in():
@@ -273,7 +295,7 @@ def list_holdings():
     except Exception as error:
         print(f"Supabase holdings load problem: {error}")
         return [], HOLDINGS_NOT_LOADED
-    return response.data or [], None
+    return [holding_from_database(row) for row in (response.data or [])], None
 
 
 def holding_save_error(operation, error=None, code=None):
@@ -309,7 +331,7 @@ def add_holding(record):
     client, user_id = signed_in_client()
     if client is None:
         return False, SIGNED_OUT_NOW
-    row = only_fields(record, HOLDING_FIELDS)
+    row = holding_to_database(record)
     row["user_id"] = user_id
     try:
         client.table(HOLDINGS_TABLE).insert(row).execute()
@@ -327,7 +349,7 @@ def update_holding(holding_id, record):
     try:
         response = (
             client.table(HOLDINGS_TABLE)
-            .update(only_fields(record, HOLDING_FIELDS))
+            .update(holding_to_database(record))
             .eq("id", holding_id)
             .eq("user_id", user_id)
             .execute()
