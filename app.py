@@ -380,6 +380,21 @@ OFFER_WAITING_TEXT = (
     "any warning signs, and questions to ask before you sign."
 )
 
+# "Risk in numbers", inside the offer's "Show me the numbers" box
+RISK_NUMBERS_TITLE = "📊 Risk in numbers"
+RISK_NUMBERS_NOTE = (
+    "These numbers come from the past years of the kind of product we compared this offer to, "
+    "not from this exact offer. They don't change our label."
+)
+RISK_NUMBERS_OFF_MAP = (
+    "⚠️ **No risk numbers for this offer.** It shows warning signs of a possible scam, "
+    "so past numbers from a real product could make it look safer than it is."
+)
+RISK_NUMBERS_NOT_RATED = (
+    "❓ **No risk numbers for this offer.** It didn't match a product on our list, "
+    "so we have no past years to measure it against."
+)
+
 # Saving a check to My history (signed-in people only)
 SAVE_HISTORY_BUTTON = "💾 Save to my history"
 SAVE_HISTORY_NOTE = (
@@ -1776,9 +1791,33 @@ def show_plain_summary(answer):
         st.markdown(f"#### 📝 In plain words\n\n{safe_text(summary)}")
 
 
-def show_offer_numbers(result, where_from, answer):
-    """'Show me the numbers' for the offer: the steps, where each fact came from,
-    and what the safety checks did."""
+def show_offer_risk_numbers(product, tier):
+    """The "Risk in numbers" part, at the bottom of the offer's "Show me the numbers" box.
+    It is drawn inline (not in its own box), because Streamlit
+    does not allow a box that opens inside another box."""
+    st.divider()
+    st.markdown(f"#### {RISK_NUMBERS_TITLE}")
+
+    # A possible scam: past numbers from a real product would be misleading.
+    if tier == "off_map":
+        st.markdown(RISK_NUMBERS_OFF_MAP)
+        return
+
+    # No match on our list: nothing to measure it against.
+    if product is None or tier == "not_rated":
+        st.markdown(RISK_NUMBERS_NOT_RATED)
+        return
+
+    st.markdown(RISK_NUMBERS_NOTE)
+    st.markdown(f"**We compared it to:** {safe_text(product['name'])}")
+    # The table itself comes from charts.py, the same one Explore products uses.
+    show_product_risk(product, inline=True)
+
+
+def show_offer_numbers(result, where_from, answer, product):
+    """'Show me the numbers' for the offer, all in one box: the steps,
+    where each fact came from, what the safety checks did, and the risk in numbers."""
+    tier = result["tier"]
     with st.expander("Show me the numbers", icon="🔢"):
         step_lines = ["**How we picked the label:**", ""]
         for step in result["steps"]:
@@ -1815,6 +1854,9 @@ def show_offer_numbers(result, where_from, answer):
             "The label never comes from the offer's own claims. "
             "Government backing, the worst year and protections always come from our product list."
         )
+
+        # The risk numbers, in the same box
+        show_offer_risk_numbers(product, tier)
 
 
 def score_offer_card(answer):
@@ -1940,11 +1982,10 @@ def show_offer_card(answer, source):
         show_questions_to_ask(answer)
         st.markdown(f"💬 {OFFER_CLOSING_LINE}")
 
-        # 6. The details, in two boxes you can open
+        # 6. The details, in two boxes you can open.
+        #    "Show me the numbers" now also holds the risk in numbers.
         show_offer_facts(answer)
-        show_offer_numbers(result, where_from, answer)
-        if product is not None and tier not in ("off_map", "not_rated"):
-            show_product_risk(product)
+        show_offer_numbers(result, where_from, answer, product)
 
         # 7. Signed in: save a summary (never the pasted words) to My history
         show_save_to_history(answer, product, result)

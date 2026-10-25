@@ -24,10 +24,24 @@ PROFILES_TABLE = "profiles"          # each person's five answers
 HOLDINGS_TABLE = "holdings"          # each person's products in My products
 OFFER_CHECKS_TABLE = "offer_checks"  # summaries of offers they chose to save
 
+# ---------- Your situation: which answer goes in which column ----------
+# Left: the question "key" in QUESTIONS in app.py.
+# Right: the column in the profiles table.
+ANSWER_COLUMNS = {
+    "age": "age_range",
+    "income": "income_range",
+    "need": "need_money",
+    "drop": "drop_reaction",
+    "goal": "goal",
+}
+
 # The only columns we ever write
 HOLDING_FIELDS = ["product_key", "nickname", "company", "amount", "rate_pct", "start_date", "end_date"]
 # Never the pasted text: only the category, label, badges and plain summary.
-OFFER_CHECK_FIELDS = ["category", "label", "access_badge", "cost_badge", "plain_summary"]
+# app.py calls the summary "plain_summary". The table's column is named "summary".
+OFFER_CHECK_FIELDS = ["category", "label", "access_badge", "cost_badge"]
+SUMMARY_COLUMN = "summary"        # the column name in the offer_checks table
+APP_SUMMARY_KEY = "plain_summary" # the name app.py uses for the same thing
 MAX_SUMMARY = 1000  # the longest summary we save, in letters
 
 # The database function that deletes the signed-in person and everything they saved
@@ -107,9 +121,20 @@ def signed_in_client():
     return client, user_id
 
 
+def log_problem(where, error):
+    """Print the full Supabase error in the terminal, so you can see WHY it failed.
+    The screen only ever shows a calm message."""
+    print(f"Supabase problem ({where}): {error}")
+    # Supabase errors often carry extra clues. Print them too if they are there.
+    for part in ("code", "message", "details", "hint"):
+        value = getattr(error, part, None)
+        if value:
+            print(f"    {part}: {value}")
+
+
 def friendly_error(error):
     """Turn a Supabase error into a calm message for the screen."""
-    print(f"Supabase problem: {error}")  # the full detail, for you in the terminal
+    log_problem("account", error)  # the full detail, for you in the terminal
     code = str(getattr(error, "code", "") or "").lower()
     text = str(error).lower()
     if code == "invalid_credentials" or "invalid login credentials" in text:
@@ -133,28 +158,6 @@ def remember_user(user):
 def only_fields(record, fields):
     """Keep only the columns we allow, so nothing else is ever written."""
     return {field: record.get(field) for field in fields}
-
-
-# App-facing names differ from the existing holdings table names.
-# Keep the rest of the UI/portfolio API stable and translate only at storage.
-HOLDING_COLUMN_MAP = {"company": "provider", "rate_pct": "interest_rate_pct"}
-
-
-def holding_to_database(record):
-    """Write only allowed fields, using the actual Supabase column names."""
-    return {
-        HOLDING_COLUMN_MAP.get(field, field): record.get(field)
-        for field in HOLDING_FIELDS
-    }
-
-
-def holding_from_database(row):
-    """Restore app-facing field names without discarding database metadata."""
-    result = dict(row)
-    for app_name, database_name in HOLDING_COLUMN_MAP.items():
-        if database_name in row:
-            result[app_name] = row[database_name]
-    return result
 
 
 # ---------- Who is signed in ----------
@@ -225,13 +228,15 @@ def sign_out():
         try:
             client.auth.sign_out()
         except Exception as error:
-            print(f"Supabase sign-out problem: {error}")
+            log_problem("sign out", error)
     st.session_state.pop(ACCOUNT_KEY, None)
     # A fresh client next time, so nothing from this sign-in is left behind.
     st.session_state.pop(CLIENT_KEY, None)
 
 
 # ---------- Saved answers (the profiles table) ----------
+# Columns: user_id, age_range, income_range, need_money, drop_reaction, goal, consented_at.
+# One row per person, found by user_id.
 
 def load_profile():
     """The signed-in person's whole profile row, or None."""
@@ -239,37 +244,51 @@ def load_profile():
     if client is None:
         return None
     try:
-        response = client.table(PROFILES_TABLE).select("*").eq("id", user_id).limit(1).execute()
+        response = (
+            client.table(PROFILES_TABLE)
+            .select("*")
+            .eq("user_id", user_id)
+            .limit(1)
+            .execute()
+        )
     except Exception as error:
-        print(f"Supabase load problem: {error}")
+        log_problem("load answers", error)
         return None
     rows = response.data or []
     return rows[0] if rows else None
 
 
 def load_answers():
-    """The signed-in person's saved answers, as a dictionary. None if there are none."""
+    """The signed-in person's saved answers, as a dictionary like
+    {"age": "70–74", "income": ...}. None if there are none."""
     profile = load_profile()
     if profile is None:
         return None
-    answers = profile.get("answers")
-    return answers if isinstance(answers, dict) else None
+    answers = {}
+    for key, column in ANSWER_COLUMNS.items():
+        answers[key] = profile.get(column)
+    # Nothing saved yet in any column: treat it as no answers.
+    if all(value is None for value in answers.values()):
+        return None
+    return answers
 
 
 def save_answers(answers):
-    """Save the five answers to the signed-in person's profile.
+    """Save the five answers, each in its own column.
+    Makes the row the first time, and changes it after that.
+    consented_at is filled in by the database the first time and never changed.
     Returns (True or False, a message for the screen)."""
     client, user_id = signed_in_client()
     if client is None:
-        return False, NOT_SAVED
+        return False, SIGNED_OUT_NOW
+    row = {"user_id": user_id}
+    for key, column in ANSWER_COLUMNS.items():
+        row[column] = answers.get(key)
     try:
-        client.table(PROFILES_TABLE).upsert({
-            "id": user_id,
-            "answers": answers,
-            "updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        }).execute()
+        # on_conflict="user_id": if this person already has a row, change it.
+        client.table(PROFILES_TABLE).upsert(row, on_conflict="user_id").execute()
     except Exception as error:
-        print(f"Supabase save problem: {error}")
+        log_problem("save answers", error)
         return False, NOT_SAVED
     return True, SAVED
 
@@ -293,71 +312,44 @@ def list_holdings():
             .execute()
         )
     except Exception as error:
-        print(f"Supabase holdings load problem: {error}")
+        log_problem("load products", error)
         return [], HOLDINGS_NOT_LOADED
-    return [holding_from_database(row) for row in (response.data or [])], None
-
-
-def holding_save_error(operation, error=None, code=None):
-    """Report a safe code and explanation, never record values or credentials."""
-    import re
-    raw_code = code or getattr(error, "code", "") or "UNKNOWN"
-    safe_code = str(raw_code).upper()
-    if not re.fullmatch(r"[A-Z0-9_]{1,32}", safe_code):
-        safe_code = "UNKNOWN"
-    explanations = {
-        "PGRST205": "The product table is unavailable. Ask the administrator to check the holdings table and API schema.",
-        "42P01": "The product table is missing. Ask the administrator to check the holdings table.",
-        "PGRST204": "The database is missing a field this form needs. Ask the administrator to check the holdings columns.",
-        "42703": "The database columns do not match this form. Ask the administrator to check the holdings columns.",
-        "42501": "The database denied permission to save this product. Ask the administrator to check access policies for your account.",
-        "23503": "A required linked record is missing. Ask the administrator to check the account and product relationships.",
-        "23502": "A required database field is missing. Ask the administrator to check the holdings schema.",
-        "23514": "A value does not satisfy a database rule. Ask the administrator to check the form and database constraints.",
-        "23505": "This product conflicts with an existing database record. Reload your products before trying again.",
-        "PGRST301": "Your account session could not be verified. Sign out, sign in again, and retry.",
-        "PGRST303": "Your account session could not be verified. Sign out, sign in again, and retry.",
-        "NO_ROWS": "No updated product was returned. Reload your products and sign in again. If it continues, ask the administrator to check that the record exists and your account can read and update it.",
-    }
-    detail = explanations.get(safe_code, "The product could not be saved. Ask the administrator to check database connectivity and configuration.")
-    st.session_state["holding_save_diagnostic"] = {"operation": operation, "code": safe_code}
-    print(f"Second Look product save: operation={operation} code={safe_code}", flush=True)
-    return f"{detail} Reference: {operation}/{safe_code}."
+    return response.data or [], None
 
 
 def add_holding(record):
     """Add one product. Returns (True or False, a message)."""
-    st.session_state.pop("holding_save_diagnostic", None)
     client, user_id = signed_in_client()
     if client is None:
         return False, SIGNED_OUT_NOW
-    row = holding_to_database(record)
+    row = only_fields(record, HOLDING_FIELDS)
     row["user_id"] = user_id
     try:
         client.table(HOLDINGS_TABLE).insert(row).execute()
     except Exception as error:
-        return False, holding_save_error("add", error)
+        log_problem("add product", error)
+        return False, HOLDING_TROUBLE
     return True, HOLDING_ADDED
 
 
 def update_holding(holding_id, record):
     """Change one of the person's own products. Returns (True or False, a message)."""
-    st.session_state.pop("holding_save_diagnostic", None)
     client, user_id = signed_in_client()
     if client is None:
         return False, SIGNED_OUT_NOW
     try:
         response = (
             client.table(HOLDINGS_TABLE)
-            .update(holding_to_database(record))
+            .update(only_fields(record, HOLDING_FIELDS))
             .eq("id", holding_id)
             .eq("user_id", user_id)
             .execute()
         )
     except Exception as error:
-        return False, holding_save_error("update", error)
+        log_problem("change product", error)
+        return False, HOLDING_TROUBLE
     if not response.data:
-        return False, holding_save_error("update", code="NO_ROWS")
+        return False, HOLDING_TROUBLE
     return True, HOLDING_CHANGED
 
 
@@ -375,12 +367,13 @@ def delete_holding(holding_id):
             .execute()
         )
     except Exception as error:
-        print(f"Supabase holdings delete problem: {error}")
+        log_problem("delete product", error)
         return False, HOLDING_TROUBLE
     return True, HOLDING_DELETED
 
 
 # ---------- My history (the offer_checks table) ----------
+# Columns: id, user_id, category, label, access_badge, cost_badge, summary, created_at.
 
 def save_offer_check(record):
     """Save one offer check: category, label, badges and plain summary only.
@@ -390,12 +383,13 @@ def save_offer_check(record):
     if client is None:
         return False, SIGNED_OUT_NOW
     row = only_fields(record, OFFER_CHECK_FIELDS)
-    row["plain_summary"] = str(row.get("plain_summary") or "")[:MAX_SUMMARY]
+    # app.py sends "plain_summary". The table's column is "summary".
+    row[SUMMARY_COLUMN] = str(record.get(APP_SUMMARY_KEY) or "")[:MAX_SUMMARY]
     row["user_id"] = user_id
     try:
         client.table(OFFER_CHECKS_TABLE).insert(row).execute()
     except Exception as error:
-        print(f"Supabase offer check save problem: {error}")
+        log_problem("save offer check", error)
         return False, CHECK_NOT_SAVED
     return True, CHECK_SAVED
 
@@ -415,9 +409,13 @@ def list_offer_checks():
             .execute()
         )
     except Exception as error:
-        print(f"Supabase offer check load problem: {error}")
+        log_problem("load offer checks", error)
         return [], CHECKS_NOT_LOADED
-    return response.data or [], None
+    rows = response.data or []
+    # Give app.py the summary under the name it expects ("plain_summary").
+    for row in rows:
+        row[APP_SUMMARY_KEY] = row.pop(SUMMARY_COLUMN, None)
+    return rows, None
 
 
 def delete_offer_check(check_id):
@@ -434,7 +432,7 @@ def delete_offer_check(check_id):
             .execute()
         )
     except Exception as error:
-        print(f"Supabase offer check delete problem: {error}")
+        log_problem("delete offer check", error)
         return False, CHECK_TROUBLE
     return True, CHECK_DELETED
 
@@ -476,7 +474,7 @@ def delete_account():
     try:
         client.rpc(DELETE_ACCOUNT_FUNCTION).execute()
     except Exception as error:
-        print(f"Supabase delete account problem: {error}")
+        log_problem("delete account", error)
         return False, ACCOUNT_DELETE_TROUBLE
     # The account is gone now, so signing out may complain. sign_out() catches that.
     sign_out()
