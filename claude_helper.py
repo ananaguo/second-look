@@ -156,11 +156,6 @@ def read_offer(offer_text, categories):
         # Join all the text parts of the reply.
         raw = "".join(block.text for block in response.content if block.type == "text")
 
-        # While we're developing: show the raw reply in the terminal.
-        print(f"\n===== Claude's raw reply (attempt {attempt}, stop reason: {response.stop_reason}) =====")
-        print(raw)
-        print("===== end of reply =====\n")
-
         answer = parse_answer(raw)
         if answer is not None:
             return answer, None
