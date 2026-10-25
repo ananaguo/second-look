@@ -73,9 +73,49 @@ TIERS_INTRO = "From the calmest water to the wildest. Every product gets exactly
 
 FAQ_TITLE = "Common questions"
 FAQ = [
-    {"question": "What do the labels mean?", "answer": ""},
-    {"question": "Where do the numbers come from?", "answer": ""},
-    {"question": "Is this financial advice?", "answer": ""},
+    {
+        "question": "What do the labels mean?",
+        "answer": (
+            "The six labels describe how much financial turbulence a product category can involve, "
+            "from Safe Harbor to Uncharted Waters. Safe Harbor covers government-backed products, "
+            "subject to insurance limits or holding-to-maturity conditions. For other categories, "
+            "the label uses the worst calendar-year loss in our reference data and whether standard "
+            "protections apply.\n\n"
+            "Click a label card to see its explanation and rule. On Explore products, choose "
+            "Show me the numbers to open the supporting facts and any available risk calculations. "
+            "The separate cost and access badges explain fees and withdrawal restrictions. "
+            "A label describes a category; it does not predict returns or guarantee that an individual offer is legitimate."
+        ),
+    },
+    {
+        "question": "Where do the numbers come from?",
+        "answer": (
+            "Product facts have source links and dates, including references to the FDIC, "
+            "U.S. Treasury, SEC, and historical-return data from NYU Stern. Other product-specific "
+            "sources are listed with the relevant product.\n\n"
+            "The app retrieves available savings rates, CD rates, Treasury yields, and inflation "
+            "figures through FRED, the Federal Reserve Bank of St. Louis data service. "
+            "When live data cannot be retrieved, saved figures are clearly identified.\n\n"
+            "Historical charts and risk calculations use the annual returns stored with the app. "
+            "Where a benchmark is used, it is identified as a benchmark rather than the actual history "
+            "of your offered product. Past results do not predict future results, and a missing "
+            "return series means we cannot provide a reliable numerical estimate for that product."
+        ),
+    },
+    {
+        "question": "Is this financial advice?",
+        "answer": (
+            "Second Look is an educational tool that helps you understand and compare financial products. "
+            "It does not tell you what to buy or sell, replace a licensed professional, or guarantee "
+            "that a product is suitable for you.\n\n"
+            "Notes based on your answers flag possible conflicts, such as needing your money before "
+            "a product's lock-up ends. When you check an offer, the app looks for quoted terms, "
+            "missing information, and warning signs. It cannot independently verify every seller or promise.\n\n"
+            "Before moving savings or signing a contract, review the official documents and consider "
+            "speaking with a qualified, fee-only fiduciary advisor. Use the questions and source links "
+            "in Second Look to guide that conversation."
+        ),
+    },
     {"question": "Do you save my information?", "answer": PRIVACY_NOTICE},
 ]
 MISSING_ANSWER = "📝 This answer is still being written."
