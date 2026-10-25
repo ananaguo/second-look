@@ -2,6 +2,7 @@
 # The screens of Second Look.
 # Run it with:  streamlit run app.py
 
+import html
 import json
 import os
 
@@ -18,6 +19,7 @@ from checks import (
     verify_quotes,
 )
 from claude_helper import read_offer
+from footer import show_footer
 from products import PRODUCTS, TIERS
 from scoring import (
     ACCESS_BADGES,
@@ -29,6 +31,7 @@ from scoring import (
     fit_notes,
     tier_label,
 )
+from styles import apply_styles
 from voice_helper import (
     DEFAULT_SPEED,
     SPEED_NORMAL,
@@ -38,14 +41,18 @@ from voice_helper import (
     get_transcript,
     number_words,
 )
+from welcome import WELCOME_WORDS, show_welcome
 
 # ---------- Page setup (this must be the first Streamlit command) ----------
 st.set_page_config(
     page_title="Second Look",
     page_icon="🔎",
-    layout="centered",
+    layout="wide",
     initial_sidebar_state="collapsed",
 )
+
+# The look and feel: fonts, colors, sizes and spacing all live in styles.py.
+apply_styles()
 
 # ---------- Demo mode ----------
 # True: the six sample offers use saved readings from data/sample_answers.json,
@@ -56,7 +63,7 @@ DEMO_MODE = True
 # ---------- The five views, in the order their buttons appear ----------
 VIEWS = ["Welcome", "Your situation", "Explore products", "Compare", "Check an offer"]
 
-# The notice shown at the top of every view
+# The notice shown at the top of every view (and again in the footer)
 NOTICE = (
     "Second Look explains money products in plain language. "
     "It is educational, not professional financial advice."
@@ -150,15 +157,7 @@ STOP_BUTTON = "⏹️ Stop and hide the voice"
 VOICE_SPINNER = "Getting the voice ready…"
 CAPTIONS_TITLE = "💬 Captions: the words being spoken"
 
-# What "Hear this page" says on the Welcome view
-WELCOME_WORDS = (
-    "Welcome to Second Look. "
-    "Every savings or investment product gets one plain label, "
-    "from Safe Harbor to Uncharted Waters. "
-    "You can always see the numbers behind every label. "
-    "You can also check an offer that someone made you. "
-    "Nothing is saved. When you close this page, everything you typed is gone."
-)
+# What "Hear this page" says on the Welcome view lives in welcome.py (WELCOME_WORDS).
 
 # ---------- Check an offer: settings and words ----------
 
@@ -183,6 +182,13 @@ NOT_STATED_QUOTE = "*The offer doesn't say.*"
 OFFER_CLOSING_LINE = (
     "This is a first look, not advice. Before you sign anything, "
     "talk it over with someone you trust."
+)
+
+# The card shown where the result will go, before anything has been checked
+OFFER_WAITING_TITLE = "📄 Your result"
+OFFER_WAITING_TEXT = (
+    "Your result will appear here. Paste an offer, tell us about it, "
+    "or pick a sample, then click **🔎 Check this offer**."
 )
 
 # Voice input on Check an offer
@@ -222,6 +228,7 @@ DEMO_CARD_LINE = (
 # ---------- Safety cards (shown on Check an offer, Explore products and Compare) ----------
 
 HELP_CARD_TITLE = "☎️ Before a big decision"
+# The same numbers are in HELP_LINES in footer.py. If one changes, change both.
 HELP_CARD_TEXT = (
     "Before a big decision, like moving savings or buying an annuity, talk with a licensed advisor. "
     "A fee-only fiduciary advisor is paid by you, not by sales commissions.\n\n"
@@ -248,265 +255,6 @@ WRONG_TEXT = (
     "Trust the official papers over this app. Ask the seller for the contract or prospectus, "
     "and go over the numbers with a licensed advisor or one of the helplines above."
 )
-
-# ---------- Look and feel: large text, high contrast, big buttons ----------
-CSS = """
-<style>
-/* Base text size. Streamlit sizes many things in 'rem', so this scales them too. */
-html { font-size: 22px; }
-
-/* Body text: large, dark, roomy */
-.stApp, .stApp p, .stApp li, .stApp label, .stApp span {
-    font-size: 22px;
-    line-height: 1.6;
-    color: #111111;
-}
-
-/* Headings: at least 34px */
-.stApp h1 {
-    font-size: 44px !important;
-    line-height: 1.25 !important;
-    font-weight: 800 !important;
-    color: #111111 !important;
-}
-.stApp h2, .stApp h3 {
-    font-size: 34px !important;
-    line-height: 1.3 !important;
-    font-weight: 700 !important;
-    color: #111111 !important;
-}
-/* Product names on the cards */
-.stApp h4 {
-    font-size: 28px !important;
-    line-height: 1.3 !important;
-    font-weight: 700 !important;
-    color: #111111 !important;
-}
-/* Text inside a heading keeps the heading's size */
-.stApp h1 span, .stApp h2 span, .stApp h3 span, .stApp h4 span {
-    font-size: inherit !important;
-}
-/* Hide the little link icons Streamlit puts next to headings */
-[data-testid="stHeaderActionElements"] {
-    display: none !important;
-}
-
-/* Keep the page centered, but wide enough for five buttons in one row */
-.stApp .block-container,
-.stApp [data-testid="stMainBlockContainer"] {
-    max-width: 960px;
-    padding-top: 2rem;
-    padding-bottom: 4rem;
-}
-
-/* Generous space between sections */
-.stApp [data-testid="stVerticalBlock"] { gap: 1.25rem; }
-.stApp [data-testid="stHorizontalBlock"] { gap: 12px; }
-.stApp hr {
-    border: none;
-    border-top: 2px solid #111111;
-    margin: 1.5rem 0;
-}
-
-/* Cards (products, questions, summary, offer, help, scam, voice): a thick dark border, lots of room */
-.stApp [class*="st-key-card_"] {
-    border: 3px solid #111111;
-    border-radius: 14px;
-    padding: 28px 24px;
-    margin-bottom: 2rem;
-    background-color: #FFFFFF;
-}
-/* The scam card: an extra-thick border, so it stands out without relying on color */
-.stApp [class*="st-key-card_scam"] {
-    border-width: 6px;
-}
-
-/* Boxes inside a card ("Worth thinking about", "Warning signs", captions) */
-.stApp [class*="st-key-notes_"] {
-    border: 2px dashed #111111;
-    border-radius: 10px;
-    padding: 18px 20px;
-}
-
-/* The block bars in the gauges */
-.stApp .gauge {
-    margin: 0.25rem 0;
-}
-.stApp .gauge-bar {
-    font-size: 30px;
-    letter-spacing: 4px;
-}
-
-/* Your situation: the question text above the choices */
-.stApp [data-testid="stRadio"] [data-testid="stWidgetLabel"] p {
-    font-size: 28px !important;
-    font-weight: 700;
-    line-height: 1.3;
-}
-/* Space between the choices */
-.stApp [data-testid="stRadio"] [role="radiogroup"] {
-    gap: 12px;
-}
-/* Each choice is a big box that is easy to click */
-.stApp [data-testid="stRadio"] [role="radiogroup"] label {
-    width: 100%;
-    min-height: 64px;
-    padding: 12px 16px;
-    border: 2px solid #111111;
-    border-radius: 10px;
-    align-items: center;
-    cursor: pointer;
-}
-/* The round dot: one and a half times bigger */
-.stApp [data-testid="stRadio"] [role="radiogroup"] label > div:first-child {
-    transform: scale(1.5);
-    margin-right: 14px;
-}
-.stApp [data-testid="stRadio"] [role="radiogroup"] label p {
-    font-size: 24px !important;
-}
-/* The chosen answer: a thicker border and bold words, not just a color */
-.stApp [data-testid="stRadio"] [role="radiogroup"] label:has(input:checked) {
-    border-width: 4px;
-    background-color: #E8EEFC;
-}
-.stApp [data-testid="stRadio"] [role="radiogroup"] label:has(input:checked) p {
-    font-weight: 700;
-}
-/* Thick outline when moving between choices with the keyboard */
-.stApp [data-testid="stRadio"] [role="radiogroup"] label:has(input:focus-visible) {
-    outline: 4px solid #111111;
-    outline-offset: 3px;
-}
-
-/* Check an offer: big labels on the text box, the dropdown and the recorder */
-.stApp [data-testid="stTextArea"] [data-testid="stWidgetLabel"] p,
-.stApp [data-testid="stSelectbox"] [data-testid="stWidgetLabel"] p,
-.stApp [data-testid="stAudioInput"] [data-testid="stWidgetLabel"] p {
-    font-size: 28px !important;
-    font-weight: 700;
-    line-height: 1.3;
-}
-/* The big text box: large dark text and a thick border */
-.stApp textarea {
-    font-size: 22px !important;
-    line-height: 1.5 !important;
-    color: #111111 !important;
-    border: 2px solid #111111 !important;
-}
-/* The dropdown: tall and easy to click */
-.stApp [data-testid="stSelectbox"] [data-baseweb="select"] > div {
-    min-height: 60px;
-    border: 2px solid #111111;
-    font-size: 22px;
-}
-/* The small "Press Ctrl+Enter" and letter-count text: dark, not gray */
-.stApp [data-testid="InputInstructions"],
-.stApp [data-testid="InputInstructions"] * {
-    color: #111111 !important;
-    font-size: 18px !important;
-}
-
-/* The recorder: a thick border so it is easy to find */
-.stApp [data-testid="stAudioInput"] > div:last-child {
-    border: 2px solid #111111;
-    border-radius: 10px;
-    min-height: 72px;
-}
-
-/* The voice player: full width and tall, so its buttons are easy to press */
-.stApp audio {
-    width: 100%;
-    height: 64px;
-}
-
-/* "Show me the numbers": big title and a clear border */
-.stApp [data-testid="stExpander"] details {
-    border: 2px solid #111111;
-    border-radius: 10px;
-}
-.stApp [data-testid="stExpander"] summary p {
-    font-size: 24px !important;
-    font-weight: 700;
-}
-
-/* The Compare checkbox label: big and bold, so it is easy to click */
-.stApp [data-testid="stCheckbox"] label p {
-    font-size: 24px !important;
-    font-weight: 700;
-}
-
-/* All buttons: big, bold, outlined in blue */
-.stApp .stButton > button {
-    min-height: 60px;
-    width: 100%;
-    padding: 10px 14px;
-    border: 3px solid #0B4FD6;
-    border-radius: 10px;
-    background-color: #FFFFFF;
-    color: #0B4FD6;
-    white-space: normal;  /* long labels wrap instead of being cut off */
-}
-.stApp .stButton > button * {
-    color: inherit;
-}
-.stApp .stButton > button p {
-    font-size: 24px !important;
-    font-weight: 700;
-    line-height: 1.25;
-}
-.stApp .stButton > button:hover {
-    background-color: #E8EEFC;
-}
-
-/* Filled blue buttons (the page you are on, and main actions) */
-.stApp .stButton > button[kind="primary"],
-.stApp .stButton > button[data-testid="stBaseButton-primary"] {
-    background-color: #0B4FD6;
-    color: #FFFFFF;
-}
-.stApp .stButton > button[kind="primary"]:hover,
-.stApp .stButton > button[data-testid="stBaseButton-primary"]:hover {
-    background-color: #083BA3;
-    border-color: #083BA3;
-    color: #FFFFFF;
-}
-
-/* The five page buttons share one height, so the row looks even */
-.stApp [class*="st-key-nav_"] .stButton > button {
-    min-height: 88px;
-}
-
-/* Thick, easy-to-see outline when moving around with the Tab key */
-.stApp button:focus-visible,
-.stApp a:focus-visible,
-.stApp input:focus-visible,
-.stApp textarea:focus-visible,
-.stApp summary:focus-visible,
-.stApp audio:focus-visible {
-    outline: 4px solid #111111 !important;
-    outline-offset: 3px !important;
-}
-
-/* No light-gray text anywhere */
-.stApp [data-testid="stCaptionContainer"],
-.stApp small,
-.stApp [data-testid="stAlert"] * {
-    color: #111111 !important;
-}
-
-/* Hide Streamlit's menu, footer, top bar and sidebar */
-#MainMenu,
-footer,
-header[data-testid="stHeader"],
-[data-testid="stToolbar"],
-[data-testid="stSidebar"],
-[data-testid="stSidebarCollapsedControl"],
-[data-testid="collapsedControl"] {
-    display: none !important;
-}
-</style>
-"""
 
 
 # ---------- Small helper functions ----------
@@ -545,7 +293,7 @@ def show_nav():
 
     for number, view_name in enumerate(VIEWS):
         is_current = view_name == current
-        # The page you are on gets a pin icon and a filled blue button,
+        # The page you are on gets a pin icon and a filled navy button,
         # so it never depends on color alone.
         label = f"📍 {view_name}" if is_current else view_name
         with columns[number]:
@@ -705,7 +453,8 @@ def show_voice(words):
     st.button(STOP_BUTTON, key="stop_speaking", on_click=stop_speaking, width="stretch")
 
 
-# ---------- Welcome ----------
+# ---------- Welcome: the voice card ----------
+# The rest of the Welcome view lives in welcome.py.
 
 def show_speed_setting():
     """The voice card: the speed choice, and a button to try the voice."""
@@ -736,22 +485,6 @@ def show_speed_setting():
             width="stretch",
         )
         show_voice(WELCOME_WORDS)
-
-
-def show_welcome():
-    """What Second Look does, in three short sentences, and the voice setting."""
-    st.markdown(
-        "Every savings or investment product gets one plain label, "
-        "from **Safe Harbor** to **Uncharted Waters**.\n\n"
-        "You can always see the numbers behind every label.\n\n"
-        "You can also check an offer that someone made you."
-    )
-    st.markdown(
-        "🔒 **Nothing is saved.** When you close this page, "
-        "everything you typed is gone."
-    )
-    show_speed_setting()
-    st.markdown("Use the big buttons at the top to choose a page.")
 
 
 # ---------- Safety cards: help, scam, and "Something looks wrong?" ----------
@@ -824,21 +557,24 @@ def show_questions():
 
     saved = st.session_state.get("answers") or {}
 
-    for number, question in enumerate(QUESTIONS, start=1):
-        radio_key = f"q_{question['key']}"
-        # When editing, start each question on the answer saved before.
-        if radio_key not in st.session_state and question["key"] in saved:
-            st.session_state[radio_key] = saved[question["key"]]
+    # The five question cards. styles.py puts them in two columns on wide screens,
+    # in reading order: 1 and 2, then 3 and 4, then 5.
+    with st.container(key="grid_questions"):
+        for number, question in enumerate(QUESTIONS, start=1):
+            radio_key = f"q_{question['key']}"
+            # When editing, start each question on the answer saved before.
+            if radio_key not in st.session_state and question["key"] in saved:
+                st.session_state[radio_key] = saved[question["key"]]
 
-        with st.container(key=f"card_q_{question['key']}"):
-            st.markdown(f"**Question {number} of {len(QUESTIONS)}**")
-            st.radio(
-                safe_text(question["question"]),
-                question["options"],
-                index=None,  # nothing is picked until the person picks it
-                key=radio_key,
-                format_func=safe_text,  # keeps $ signs as plain dollar signs
-            )
+            with st.container(key=f"card_q_{question['key']}"):
+                st.markdown(f"**Question {number} of {len(QUESTIONS)}**")
+                st.radio(
+                    safe_text(question["question"]),
+                    question["options"],
+                    index=None,  # nothing is picked until the person picks it
+                    key=radio_key,
+                    format_func=safe_text,  # keeps $ signs as plain dollar signs
+                )
 
     if st.button("✅ Save my answers", key="save_answers", type="primary", width="stretch"):
         missing = missing_question_numbers()
@@ -1112,28 +848,223 @@ def show_explore():
             width="stretch",
         )
 
-    for product, result in sorted_products():
-        # The key gives this card a name, so the CSS above can draw its border.
-        with st.container(key=f"card_{product['key']}"):
-            show_tier_heading(result["tier"])
-            show_product_name(product)
-            show_read_aloud(product, result)
-            show_gauge(result["tier"])
-            show_badges(result)
-            show_worst_year(product, result)
-            show_fit_notes(product)
-            show_numbers(product, result)
-            show_compare_box(product)
+    # One card per product. styles.py lays them out in a grid:
+    # three per row on wide screens, two on medium screens, one on phones.
+    with st.container(key="grid_products"):
+        for product, result in sorted_products():
+            # The key gives this card a name, so styles.py can draw its border.
+            with st.container(key=f"card_{product['key']}"):
+                show_tier_heading(result["tier"])
+                show_product_name(product)
+                show_read_aloud(product, result)
+                show_gauge(result["tier"])
+                show_badges(result)
+                show_worst_year(product, result)
+                show_fit_notes(product)
+                show_numbers(product, result)
+                show_compare_box(product)
 
     # The scam card, the help card and "Something looks wrong?"
     show_safety_cards()
 
 
-# ---------- Compare (still being built) ----------
+# ---------- Compare: a side-by-side table ----------
+# The products come from the Compare boxes ticked on Explore products.
+# The table is plain HTML, so styles.py can draw it like a comparison page.
+
+COMPARE_EMPTY = (
+    "You haven't picked any products yet. On **Explore products**, tick the "
+    "**Compare** box on each product you want to see side by side."
+)
+COMPARE_HOW = "To add or remove a product, tick or untick its **Compare** box on **Explore products**."
+COMPARE_ONE_MORE = "Tick at least one more product to see them side by side."
+COMPARE_SCROLL_HINT = (
+    "↔️ If the table is wider than your screen, slide it sideways to see every product."
+)
+COMPARE_LABEL_NOTE = (
+    "Every label comes from our published rules, never from a salesperson. "
+    "Open **Show me the numbers** on any card in Explore products to see how it was picked."
+)
+
+# Yes, no or not known: always an icon AND a word.
+# The marks are neutral (✔ means yes, ✖ means no), not "good" or "bad".
+YES_NO_CELLS = {
+    True: ("✔", "Yes"),
+    False: ("✖", "No"),
+    None: ("❓", "Not known"),
+}
+
+
+def cell_text(text):
+    """Text that is safe to put inside the table's HTML.
+    &#36; is a plain dollar sign, so Streamlit never treats it as math."""
+    return html.escape(str(text)).replace("$", "&#36;")
+
+
+def icon_html(icon):
+    """An icon that screen readers skip, because a word always comes with it."""
+    return f'<span class="cmp-icon" aria-hidden="true">{cell_text(icon)}</span>'
+
+
+def yes_no_cell(value):
+    """A yes / no / not known fact as an icon and a word."""
+    icon, word = YES_NO_CELLS.get(value, YES_NO_CELLS[None])
+    return f"{icon_html(icon)} <strong>{word}</strong>"
+
+
+def tier_cell(tier):
+    """The label: its icon, its name, and 'Tier N of 6'."""
+    info = get_tier_info(tier)
+    if info is not None:
+        return (
+            f"{icon_html(info['icon'])} <strong>{cell_text(info['name'])}</strong>"
+            f"<br>Tier {info['number']} of 6"
+        )
+    if tier == "off_map":
+        return f"{icon_html('⚠️')} <strong>{cell_text(tier_label(tier))}</strong>"
+    return f"{icon_html('❓')} <strong>{cell_text(tier_label(tier))}</strong>"
+
+
+def worst_year_cell(product, result):
+    """What $10,000 became in the worst year, and which year that was."""
+    lost = result["worst_case_dollars"]
+    if lost is None:
+        return "Not known yet"
+    left_over = max(0, EXAMPLE_AMOUNT - lost)
+    line = f"$10,000 → ${left_over:,}"
+    return f"<strong>{cell_text(line)}</strong><br>{cell_text(product['worst_year'])}"
+
+
+def access_cell(product, result):
+    """The access badge with its icon, and the note from products.py."""
+    access = result["access_badge"]
+    icon = ACCESS_ICONS.get(access, "❔")
+    return f"{icon_html(icon)} <strong>{cell_text(access)}</strong><br>{cell_text(product['access_note'])}"
+
+
+def cost_cell(product, result):
+    """The cost badge with its icon, the yearly percent, and the note."""
+    badge = result["cost_badge"]
+    icon = COST_ICONS.get(badge, "❔")
+    cost = product["yearly_cost_pct"]
+    cost_text = "Not known yet." if cost is None else f"{cost:g}% a year."
+    return (
+        f"{icon_html(icon)} <strong>{cell_text(badge)}</strong><br>"
+        f"{cell_text(cost_text)} {cell_text(product['cost_note'])}"
+    )
+
+
+def notes_cell(product, answers):
+    """The "Worth thinking about" notes for this product (scoring.py decides them)."""
+    notes = fit_notes(product, answers)
+    if not notes:
+        return cell_text(NO_NOTES_LINE)
+    return "<br><br>".join(cell_text(note) for note in notes)
+
+
+def sources_cell(product):
+    """Every source as a link, with its as-of date."""
+    links = []
+    for source in product["sources"]:
+        links.append(
+            f'<a href="{cell_text(source["url"])}" target="_blank" rel="noopener noreferrer">'
+            f'{cell_text(source["label"])}</a>, as of {cell_text(source["as_of"])}'
+        )
+    if not links:
+        return "No sources yet."
+    return "<br>".join(links)
+
+
+def compare_table_rows(rows):
+    """Every row of the table: (row label, one cell per product).
+    rows is a list of (product, result) pairs."""
+    table = [
+        ("Label", [tier_cell(result["tier"]) for product, result in rows]),
+        ("What it is", [cell_text(product["one_line"]) for product, result in rows]),
+        ("Backed by the U.S. government",
+         [yes_no_cell(product["government_backed"]) for product, result in rows]),
+        ("In its worst year", [worst_year_cell(product, result) for product, result in rows]),
+        ("Getting money out", [access_cell(product, result) for product, result in rows]),
+        ("Cost", [cost_cell(product, result) for product, result in rows]),
+        ("Sales or surrender charge",
+         [yes_no_cell(product["sales_or_surrender_charge"]) for product, result in rows]),
+        ("Standard protections", [yes_no_cell(product["protections"]) for product, result in rows]),
+        ("What it might earn", [cell_text(product["gain_note"]) for product, result in rows]),
+        ("Insurance", [cell_text(product["insurance_note"]) for product, result in rows]),
+    ]
+
+    # The notes row only appears once the person has saved their answers.
+    answers = st.session_state.get("answers")
+    if answers:
+        table.append((NOTES_TITLE, [notes_cell(product, answers) for product, result in rows]))
+
+    table.append(("Sources (open in a new tab)", [sources_cell(product) for product, result in rows]))
+    return table
+
+
+def compare_table_html(rows):
+    """The whole table as HTML: product names across the top,
+    row labels down the left side."""
+    names = "".join(f'<th scope="col">{cell_text(product["name"])}</th>' for product, result in rows)
+    parts = [
+        f'<thead><tr><th scope="col" class="cmp-corner">Compared</th>{names}</tr></thead>',
+        "<tbody>",
+    ]
+    for label, cells in compare_table_rows(rows):
+        tds = "".join(f"<td>{cell}</td>" for cell in cells)
+        parts.append(f'<tr><th scope="row">{cell_text(label)}</th>{tds}</tr>')
+    parts.append("</tbody>")
+
+    # Everything on one line: Streamlit could misread spaces at the start of a line.
+    # tabindex="0" lets the Tab key reach the table, so the arrow keys can slide it.
+    return (
+        '<div class="cmp-scroll" role="region" aria-label="Comparison table" tabindex="0">'
+        f'<table class="cmp-table">{"".join(parts)}</table>'
+        "</div>"
+    )
+
 
 def show_compare():
-    """The Compare view. Not built yet, but the safety cards are already here."""
-    show_coming_soon()
+    """The Compare view: the chosen products side by side."""
+    chosen = st.session_state.get("compare_keys", [])
+    # In label order, from Safe Harbor to Uncharted Waters.
+    rows = [(product, result) for product, result in sorted_products() if product["key"] in chosen]
+
+    if not rows:
+        st.markdown(COMPARE_EMPTY)
+        st.button(
+            "🧭 Go to Explore products",
+            key="compare_go_explore",
+            on_click=go_to,
+            args=("Explore products",),
+            type="primary",
+            width="stretch",
+        )
+        show_safety_cards()
+        return
+
+    count = len(rows)
+    things = "product" if count == 1 else "products"
+    st.markdown(f"Comparing **{count} {things}**, from the calmest water to the wildest. {COMPARE_HOW}")
+    if count == 1:
+        st.markdown(COMPARE_ONE_MORE)
+    else:
+        st.markdown(COMPARE_SCROLL_HINT)
+
+    st.markdown(compare_table_html(rows), unsafe_allow_html=True)
+
+    if st.session_state.get("answers"):
+        st.markdown(NOTES_DISCLAIMER)
+    st.markdown(COMPARE_LABEL_NOTE)
+    st.button(
+        "🧭 Add or remove products on Explore products",
+        key="compare_go_explore",
+        on_click=go_to,
+        args=("Explore products",),
+        width="stretch",
+    )
+
+    # The scam card, the help card and "Something looks wrong?"
     show_safety_cards()
 
 
@@ -1602,19 +1533,12 @@ def show_offer_card(answer, is_demo):
         show_offer_numbers(result, where_from, answer)
 
 
-def show_check_offer():
-    """The Check an offer view: a text box, a recorder, sample offers, a button, and the result."""
-    st.warning(PRIVACY_LINE, icon="🛡️")
-    st.markdown(
-        "Paste the words from a letter, brochure, email or ad, "
-        "tell us out loud what the salesperson said, "
-        "or pick one of our made-up sample offers."
-    )
+# ---------- Check an offer: the two columns ----------
 
+def show_offer_input(samples, demo_answers):
+    """The left column: the sample menu, the big text box, the microphone,
+    and the Check button. Clicking Check reads the offer here."""
     # The sample dropdown fills the big text box.
-    samples = load_sample_offers()
-    demo_answers = load_demo_answers() if DEMO_MODE else {}
-
     if samples:
         st.selectbox(
             SAMPLE_LABEL,
@@ -1665,22 +1589,57 @@ def show_check_offer():
             else:
                 cache[text] = {"answer": answer, "is_demo": False}
 
-    # Show the card whenever we already have a reading for this exact text.
+
+def show_offer_result():
+    """The right column: the result card, or a card saying where it will appear.
+    Returns True if the scam card was shown here."""
+    text = st.session_state.get("offer_text", "").strip()
+    cache = st.session_state.get("offer_cache", {})
+
+    # Nothing checked yet for this exact text: say where the result will go.
+    if not (text and text in cache):
+        with st.container(key="card_offer_waiting"):
+            st.markdown(f"### {OFFER_WAITING_TITLE}")
+            st.markdown(OFFER_WAITING_TEXT)
+        return False
+
+    entry = cache[text]
+    # The safety layer runs on EVERY reading, saved or live, before scoring:
+    # 1. check each quote against the pasted text, 2. apply the guards.
+    checked = verify_quotes(text, entry["answer"])
+    guarded = apply_guards(checked)
+    guards = guarded["guards"]
+
+    # Any warning sign found: the scam card goes ABOVE the result.
     scam_shown = False
-    if text and text in cache:
-        entry = cache[text]
-        # The safety layer runs on EVERY reading, saved or live, before scoring:
-        # 1. check each quote against the pasted text, 2. apply the guards.
-        checked = verify_quotes(text, entry["answer"])
-        guarded = apply_guards(checked)
-        guards = guarded["guards"]
+    if guards["show_scam_card"]:
+        show_scam_card("card_scam_top", found_count=guards["red_flag_count"])
+        scam_shown = True
 
-        # Any warning sign found: the scam card goes ABOVE the result.
-        if guards["show_scam_card"]:
-            show_scam_card("card_scam_top", found_count=guards["red_flag_count"])
-            scam_shown = True
+    show_offer_card(guarded, entry["is_demo"])
+    return scam_shown
 
-        show_offer_card(guarded, entry["is_demo"])
+
+def show_check_offer():
+    """The Check an offer view: the input on the left, the result on the right.
+    styles.py puts them one under the other on smaller screens."""
+    st.warning(PRIVACY_LINE, icon="🛡️")
+    st.markdown(
+        "Paste the words from a letter, brochure, email or ad, "
+        "tell us out loud what the salesperson said, "
+        "or pick one of our made-up sample offers."
+    )
+
+    samples = load_sample_offers()
+    demo_answers = load_demo_answers() if DEMO_MODE else {}
+
+    # The left column runs first, so a click on Check is handled
+    # before the right column draws the result.
+    with st.container(key="layout_offer"):
+        with st.container(key="offer_input"):
+            show_offer_input(samples, demo_answers)
+        with st.container(key="offer_result"):
+            scam_shown = show_offer_result()
 
     # At the bottom: the scam card (unless it's already above), the help card,
     # and "Something looks wrong?"
@@ -1693,14 +1652,14 @@ def show_check_offer():
 if st.session_state.get("view") not in VIEWS:
     st.session_state["view"] = "Welcome"
 
-st.markdown(CSS, unsafe_allow_html=True)
-
 show_notice()
 show_nav()
-show_heading()
+# Welcome has its own big headline (in welcome.py), so it skips the normal title.
+if st.session_state["view"] != "Welcome":
+    show_heading()
 
 if st.session_state["view"] == "Welcome":
-    show_welcome()
+    show_welcome(go_to, show_speed_setting)
 elif st.session_state["view"] == "Your situation":
     show_situation()
 elif st.session_state["view"] == "Explore products":
@@ -1713,3 +1672,5 @@ else:
     show_coming_soon()
 
 show_start_over()
+# The footer, on every view: help numbers and the "not advice" notice.
+show_footer(NOTICE)
